@@ -53,7 +53,7 @@ window = None  # ссылка на окно pywebview (нужна для диа�
 
 # === Версия и обновления через GitHub ===
 # При каждом новом релизе увеличивай VERSION и ставь такой же тег у релиза (например v1.1).
-VERSION = "1.37"
+VERSION = "1.38"
 GITHUB_REPO = "Gigs-vibe/drive-board"
 
 _pending_update = {"version": None, "download_url": None}
@@ -198,20 +198,24 @@ class Api:
         # PowerShell: ждём закрытия, меняем exe, перезапускаем
         cur = current_exe.replace("'", "''")
         new = new_exe.replace("'", "''")
+        ps_esc = ps_path.replace("'", "''")
         ps = "\n".join([
-            "Start-Sleep 2",
-            f"$old = '{cur}.old'",
-            f"if (Test-Path $old) {{ Remove-Item $old -Force }}",
-            f"Rename-Item '{cur}' $old",
-            f"Copy-Item '{new}' '{cur}'",
-            f"Remove-Item '{new}' -Force",
-            f"Start-Process '{cur}'",
-            "Start-Sleep 4",
-            f"if (Test-Path $old) {{ Remove-Item $old -Force }}",
-            f"Remove-Item '{ps_path.replace(chr(39), chr(39)+chr(39))}' -Force -ErrorAction SilentlyContinue",
+            "$cur = '" + cur + "'",
+            "$new = '" + new + "'",
+            "$bak = $cur + '.old'",
+            "Start-Sleep 3",
+            "if (Test-Path $bak) { Remove-Item $bak -Force -ErrorAction SilentlyContinue }",
+            "Move-Item $cur $bak -Force",
+            "Copy-Item $new $cur -Force",
+            "Remove-Item $new -Force -ErrorAction SilentlyContinue",
+            "Start-Process $cur",
+            "Start-Sleep 5",
+            "if (Test-Path $bak) { Remove-Item $bak -Force -ErrorAction SilentlyContinue }",
+            "Remove-Item '" + ps_esc + "' -Force -ErrorAction SilentlyContinue",
         ])
         try:
-            with open(ps_path, "w", encoding="utf-8") as f:
+            # utf-8-sig = BOM, чтобы PowerShell 5.1 корректно прочитал файл
+            with open(ps_path, "w", encoding="utf-8-sig") as f:
                 f.write(ps)
         except Exception as ex:
             return {"ok": False, "error": f"Ошибка скрипта: {ex}"}
@@ -220,7 +224,7 @@ class Api:
             subprocess.Popen(
                 ["powershell", "-NonInteractive", "-WindowStyle", "Hidden",
                  "-ExecutionPolicy", "Bypass", "-File", ps_path],
-                creationflags=subprocess.DETACHED_PROCESS,
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
                 close_fds=True,
             )
         except Exception as ex:
