@@ -34,6 +34,16 @@
   mark{background:var(--hl);color:#171a21;border-radius:3px;padding:0 2px}
 
   header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line);flex-shrink:0;z-index:5}
+  #updateBar{display:none;align-items:center;gap:12px;padding:9px 20px;background:linear-gradient(90deg,#052e1c,#063a22);color:#d1fae5;font-size:13px;flex-shrink:0;border-bottom:1px solid #0a4d2e;z-index:4}
+  #updateBar.show{display:flex}
+  #updateBar .upd-text{flex:1;font-weight:600}
+  #updateBar .upd-text span{opacity:.75;font-weight:400;margin-left:6px}
+  #updateBar .upd-prog{flex:1;height:4px;background:rgba(255,255,255,.15);border-radius:99px;overflow:hidden;display:none}
+  #updateBar .upd-prog-fill{height:100%;background:var(--accent);border-radius:99px;width:0%;transition:width .3s}
+  #updateBar .upd-btn{padding:5px 14px;background:var(--accent);color:#fff;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none;white-space:nowrap;transition:opacity .15s}
+  #updateBar .upd-btn:hover{opacity:.85}
+  #updateBar .upd-btn:disabled{opacity:.5;cursor:default}
+  #updateBar .upd-close{opacity:.5;cursor:pointer;font-size:18px;line-height:1;padding:0 4px;flex-shrink:0}
   .brand{display:flex;align-items:center;gap:10px}
   .brand .dot{width:26px;height:26px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent-2));display:flex;align-items:center;justify-content:center}
   .brand .dot svg{width:15px;height:15px;color:#fff}
@@ -432,6 +442,14 @@
     </div>
   </div>
 </header>
+
+<div id="updateBar">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+  <div class="upd-text">Доступно обновление<span id="updVerLabel"></span></div>
+  <div class="upd-prog"><div class="upd-prog-fill" id="updProgFill"></div></div>
+  <button class="upd-btn" id="updInstallBtn">Установить</button>
+  <span class="upd-close" id="updClose" title="Скрыть">×</span>
+</div>
 
 <div class="banner">
   <div class="gifbox" id="gifBox"></div>
@@ -1219,6 +1237,38 @@ function renderGifList(){
 }
 
 /* ---------- excel report ---------- */
+/* ---------- auto-update ---------- */
+let _updUrl=null;
+function showUpdateBanner(version, url){
+  _updUrl=url;
+  document.getElementById('updVerLabel').textContent=' — v'+version;
+  document.getElementById('updateBar').classList.add('show');
+}
+function updateDownloadProgress(pct){
+  const bar=document.getElementById('updateBar');
+  const prog=bar.querySelector('.upd-prog');
+  const fill=document.getElementById('updProgFill');
+  prog.style.display='block';
+  fill.style.width=pct+'%';
+}
+document.getElementById('updInstallBtn').onclick=async()=>{
+  if(!_updUrl)return;
+  const btn=document.getElementById('updInstallBtn');
+  btn.disabled=true;
+  btn.textContent='Загрузка…';
+  try{
+    await window.pywebview.api.download_and_update(_updUrl);
+  }catch(e){
+    btn.disabled=false;
+    btn.textContent='Установить';
+    toast('Ошибка обновления', e.message||String(e));
+  }
+};
+document.getElementById('updClose').onclick=()=>{
+  document.getElementById('updateBar').classList.remove('show');
+};
+function showToast(title,sub,cls){toast(title,sub,cls);}
+
 document.getElementById('syncBtn').onclick=async()=>{
   closeMenus();
   if(!session){toast('Не выполнен вход','Войди в аккаунт для синхронизации.');return;}
