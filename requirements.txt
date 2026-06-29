@@ -1,0 +1,8 @@
+pywebview
+pystray
+Pillow
+winotify
+pyinstaller
+truststore
+
+

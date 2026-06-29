@@ -1,0 +1,21 @@
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Local data (user files, not for repo)
+drive-board.json
+drive-notified.json
+
+# IDE / internal
+.claude/
+pc-next-session-prompt.md
+
+# WebView2 local storage (created at runtime)
+*.json
+!requirements.txt
