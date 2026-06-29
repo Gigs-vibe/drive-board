@@ -1399,7 +1399,7 @@ async function startApp(){
   updateProfileUI();updateHeaderAvatar();
   checkProStatus();
   if(session)cloudPush({...state,_profile:loadProfile()}).catch(()=>{});
-  if(!localStorage.getItem(OB_KEY))setTimeout(startOnboarding,600);
+  if(!state._onboardingDone&&!localStorage.getItem(OB_KEY))setTimeout(startOnboarding,600);
   if(!window.__started){
     window.__started=true;
     if(!window.__PYWV&&'Notification'in window&&Notification.permission==='default'){try{Notification.requestPermission();}catch(e){}}
@@ -1825,7 +1825,7 @@ function renderObStep(){
   OB_STEPS.forEach((_,i)=>{const d=document.createElement('div');d.className='onboarding-dot'+(i===obStep?' on':'');dots.appendChild(d);});
 }
 function startOnboarding(){obStep=0;renderObStep();document.getElementById('onboardingOverlay').classList.add('open');}
-function closeOnboarding(){document.getElementById('onboardingOverlay').classList.remove('open');localStorage.setItem(OB_KEY,'1');}
+function closeOnboarding(){document.getElementById('onboardingOverlay').classList.remove('open');localStorage.setItem(OB_KEY,'1');if(state){state._onboardingDone=true;save();}}
 document.getElementById('obNext').onclick=()=>{
   if(obStep<OB_STEPS.length-1){obStep++;renderObStep();}else{closeOnboarding();}
 };
