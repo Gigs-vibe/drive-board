@@ -4,5 +4,6 @@ Pillow
 winotify
 pyinstaller
 truststore
+openpyxl
 
 

@@ -425,6 +425,7 @@
       <button id="excelBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 13 6 6M15 13l-6 6"/></svg> Отчёт в Excel</button>
       <button id="exportBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg> Сохранить в файл</button>
       <button id="importBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg> Загрузить из файла</button>
+      <button id="syncBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg> Синхронизировать</button>
       <div class="menu-sep"></div>
       <button id="accountBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg> <span id="accountBtnLabel">Войти в аккаунт</span></button>
       <button id="profileMenuBtn" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Профиль</button>
@@ -854,6 +855,7 @@ async function cloudPush(obj){
   const h=await cloudHeaders();h['Prefer']='resolution=merge-duplicates';
   const res=await fetch(SB_URL+'/rest/v1/boards',{method:'POST',headers:h,body:JSON.stringify({user_id:session.user.id,data:obj,updated_at:new Date().toISOString()})});
   if(res.status===401){await refreshToken();return cloudPush(obj);}
+  if(!res.ok)throw new Error('Ошибка сервера: '+res.status);
 }
 
 function translateAuthError(m){
@@ -905,8 +907,8 @@ function migrate(s){
   return s;
 }
 
-let saveTimer=null;
-function save(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>{Store.set(KEY,JSON.stringify(state));if(session)cloudPush({...state,_profile:loadProfile()}).catch(()=>{});},300);}
+let saveTimer=null,lastSyncErrToast=0;
+function save(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>{Store.set(KEY,JSON.stringify(state));if(session)cloudPush({...state,_profile:loadProfile()}).catch(e=>{const now=Date.now();if(now-lastSyncErrToast>60000){lastSyncErrToast=now;toast('Не синхронизировано','Нажми «Синхронизировать» в меню ⋯');}});},300);}
 function pushProfileNow(){if(session)cloudPush({...state,_profile:loadProfile()}).catch(()=>{});}
 function colByRole(r){return state.columns.find(c=>c.role===r);}
 function colById(id){return state.columns.find(c=>c.id===id);}
@@ -1217,6 +1219,15 @@ function renderGifList(){
 }
 
 /* ---------- excel report ---------- */
+document.getElementById('syncBtn').onclick=async()=>{
+  closeMenus();
+  if(!session){toast('Не выполнен вход','Войди в аккаунт для синхронизации.');return;}
+  toast('Синхронизация…','Отправляем данные в облако.');
+  try{
+    await cloudPush({...state,_profile:loadProfile()});
+    toast('Синхронизировано','Данные сохранены в облаке.','green');
+  }catch(e){toast('Ошибка синхронизации',e.message||'Проверь подключение к интернету.');}
+};
 document.getElementById('excelBtn').onclick=async()=>{closeMenus();
   if(window.pywebview&&window.pywebview.api&&window.pywebview.api.export_excel){
     toast('Готовлю отчёт','Выбери, куда сохранить файл…');
