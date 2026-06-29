@@ -513,7 +513,7 @@ def main():
 
     # WebView2 (Edge) встроен в Windows 10/11 — отдельной установки не нужно
     # storage_path + private_mode=False — localStorage сохраняется между запусками
-    webview.start(storage_path=data_dir(), private_mode=False)
+    webview.start(storage_path=data_dir(), private_mode=False, gui="edgechromium")
     stop_event.set()
 
 
