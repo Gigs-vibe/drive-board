@@ -34,6 +34,7 @@ Name: "{autodesktop}\Taska"; Filename: "{app}\Taska.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\Taska.exe"; Description: "Запустить Taska"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Taska.exe"; Flags: nowait; Check: WizardSilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
