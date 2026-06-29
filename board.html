@@ -1244,13 +1244,6 @@ function showUpdateBanner(version, url){
   document.getElementById('updVerLabel').textContent=' — v'+version;
   document.getElementById('updateBar').classList.add('show');
 }
-function updateDownloadProgress(pct){
-  const bar=document.getElementById('updateBar');
-  const prog=bar.querySelector('.upd-prog');
-  const fill=document.getElementById('updProgFill');
-  prog.style.display='block';
-  fill.style.width=pct+'%';
-}
 document.getElementById('updInstallBtn').onclick=async()=>{
   if(!_updUrl)return;
   const btn=document.getElementById('updInstallBtn');
@@ -1258,12 +1251,24 @@ document.getElementById('updInstallBtn').onclick=async()=>{
   btn.textContent='Загрузка…';
   try{
     await window.pywebview.api.download_and_update(_updUrl);
+    // если дошли сюда — что-то пошло не так (в норме os._exit закрывает приложение)
+    btn.textContent='Установить';
+    btn.disabled=false;
   }catch(e){
     btn.disabled=false;
     btn.textContent='Установить';
     toast('Ошибка обновления', e.message||String(e));
   }
 };
+function updateDownloadProgress(pct){
+  const bar=document.getElementById('updateBar');
+  const prog=bar.querySelector('.upd-prog');
+  const fill=document.getElementById('updProgFill');
+  const btn=document.getElementById('updInstallBtn');
+  prog.style.display='block';
+  fill.style.width=pct+'%';
+  if(pct>=99)btn.textContent='Устанавливаю…';
+}
 document.getElementById('updClose').onclick=()=>{
   document.getElementById('updateBar').classList.remove('show');
 };
