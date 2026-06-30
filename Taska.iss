@@ -1,7 +1,7 @@
 [Setup]
 AppId={{8A3F2C1D-4E5B-4F6A-9D7E-2B0C8F1A3E5D}
 AppName=Taska
-AppVersion=1.4
+AppVersion=1.6.0
 AppPublisher=Gigs-vibe
 DefaultDirName={localappdata}\Programs\Taska
 DefaultGroupName=Taska
@@ -26,7 +26,8 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; GroupDescription: "Дополнительно:"; Flags: unchecked
 
 [Files]
-Source: "dist\Taska.exe"; DestDir: "{app}"; Flags: ignoreversion
+; onedir-сборка: вся папка (Taska.exe + _internal со всеми DLL) — нет распаковки в temp при запуске
+Source: "dist\Taska\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\Taska"; Filename: "{app}\Taska.exe"
