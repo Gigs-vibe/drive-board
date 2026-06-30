@@ -1250,14 +1250,15 @@ document.getElementById('updInstallBtn').onclick=async()=>{
   btn.disabled=true;
   btn.textContent='Загрузка…';
   try{
-    await window.pywebview.api.download_and_update(_updUrl);
-    // если дошли сюда — что-то пошло не так (в норме os._exit закрывает приложение)
+    const res=await window.pywebview.api.download_and_update(_updUrl);
+    // если дошли сюда — os._exit не вызвался, значит что-то пошло не так
     btn.textContent='Установить';
     btn.disabled=false;
+    if(res&&res.error)toast('Ошибка обновления',res.error,'');
   }catch(e){
     btn.disabled=false;
     btn.textContent='Установить';
-    toast('Ошибка обновления', e.message||String(e));
+    toast('Ошибка обновления',e.message||String(e),'');
   }
 };
 function updateDownloadProgress(pct){
