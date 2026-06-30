@@ -1241,7 +1241,8 @@ function renderGifList(){
 let _updUrl=null;
 function showUpdateBanner(version, url){
   _updUrl=url;
-  document.getElementById('updVerLabel').textContent=' — v'+version;
+  const v=(version||'').charAt(0).toLowerCase()==='v'?version:'v'+version;
+  document.getElementById('updVerLabel').textContent=' — '+v;
   document.getElementById('updateBar').classList.add('show');
 }
 document.getElementById('updInstallBtn').onclick=async()=>{
