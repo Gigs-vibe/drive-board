@@ -1898,6 +1898,9 @@ document.getElementById('obNext').onclick=()=>{
 document.getElementById('obSkip').onclick=closeOnboarding;
 
 whenReady(async function(){
+  if(window.__PYWV&&window.pywebview&&window.pywebview.api){
+    try{const v=await window.pywebview.api.get_version();const el=document.getElementById('sVersionLine');if(el)el.textContent='Версия '+v;}catch(e){}
+  }
   loadSession();
   if(session){
     try{if(session.expires_at&&Date.now()>session.expires_at-60000)await refreshToken();await startApp();}
