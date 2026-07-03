@@ -854,25 +854,43 @@ function setSessionFrom(d){
 }
 async function signIn(email,pass){const d=await authReq('token?grant_type=password',{email,password:pass});if(!setSessionFrom(d))throw new Error('Не удалось войти');setOffline(false);}
 async function signUp(email,pass){const d=await authReq('signup',{email,password:pass});if(setSessionFrom(d)){setOffline(false);return;}await signIn(email,pass);}
-async function refreshToken(){if(!session||!session.refresh_token)throw new Error('no session');const d=await authReq('token?grant_type=refresh_token',{refresh_token:session.refresh_token});if(!setSessionFrom(d))throw new Error('refresh failed');}
-function signOut(){if(session&&session.access_token){try{fetch(SB_URL+'/auth/v1/logout',{method:'POST',headers:{'apikey':SB_ANON,'Authorization':'Bearer '+session.access_token}});}catch(e){}}saveSession(null);}
+let _refreshPromise=null;
+async function refreshToken(){
+  if(_refreshPromise)return _refreshPromise; // защита от гонки: параллельные вызовы ждут один запрос
+  _refreshPromise=(async()=>{
+    if(!session||!session.refresh_token)throw new Error('no session');
+    try{
+      const d=await authReq('token?grant_type=refresh_token',{refresh_token:session.refresh_token});
+      if(!setSessionFrom(d))throw new Error('refresh failed');
+    }catch(e){
+      const m=(e.message||'').toLowerCase();
+      if(m.includes('refresh token')||m.includes('refresh_token')){ // токен отозван — чистим сессию и просим войти заново
+        saveSession(null);
+        try{updateAccountUI();showAuth();toast('Сессия истекла','Войди в аккаунт заново для синхронизации.');}catch(_){}
+      }
+      throw e;
+    }finally{_refreshPromise=null;}
+  })();
+  return _refreshPromise;
+}
+function signOut(){if(session&&session.access_token){try{fetch(SB_URL+'/auth/v1/logout?scope=local',{method:'POST',headers:{'apikey':SB_ANON,'Authorization':'Bearer '+session.access_token}});}catch(e){}}saveSession(null);}
 
 async function cloudHeaders(){
   if(session&&session.expires_at&&Date.now()>session.expires_at-60000){try{await refreshToken();}catch(e){}}
   return {'apikey':SB_ANON,'Authorization':'Bearer '+(session?session.access_token:''),'Content-Type':'application/json'};
 }
-async function cloudPull(){
+async function cloudPull(_retried){
   if(!session)return null;
   const res=await fetch(SB_URL+'/rest/v1/boards?select=data&user_id=eq.'+session.user.id,{headers:await cloudHeaders()});
-  if(res.status===401){await refreshToken();return cloudPull();}
+  if(res.status===401&&!_retried){await refreshToken();return cloudPull(true);}
   if(!res.ok)throw new Error('pull '+res.status);
   const rows=await res.json();return rows.length?rows[0].data:null;
 }
-async function cloudPush(obj){
+async function cloudPush(obj,_retried){
   if(!session)return;
   const h=await cloudHeaders();h['Prefer']='resolution=merge-duplicates';
   const res=await fetch(SB_URL+'/rest/v1/boards',{method:'POST',headers:h,body:JSON.stringify({user_id:session.user.id,data:obj,updated_at:new Date().toISOString()})});
-  if(res.status===401){await refreshToken();return cloudPush(obj);}
+  if(res.status===401&&!_retried){await refreshToken();return cloudPush(obj,true);}
   if(!res.ok)throw new Error('Ошибка сервера: '+res.status);
 }
 
