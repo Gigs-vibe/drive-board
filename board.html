@@ -497,8 +497,8 @@
   <div class="modal">
     <h2 id="taskModalTitle">Новая задача</h2>
     <div class="body">
-      <div class="field"><label>Название</label><input id="fTitle" placeholder="Что нужно сделать?" maxlength="200"></div>
-      <div class="field"><label>Описание</label><textarea id="fDesc" placeholder="Детали, подзадачи, ссылки…"></textarea></div>
+      <div class="field"><label>Название</label><input id="fTitle" placeholder="Что нужно сделать?" maxlength="80"></div>
+      <div class="field"><label>Описание</label><textarea id="fDesc" placeholder="Детали, подзадачи, ссылки…" maxlength="255"></textarea></div>
       <div class="field"><label>Приоритет</label>
         <div class="prio-pick" id="fPrio">
           <button data-p="">Без</button><button data-p="low">Низкий</button><button data-p="med">Средний</button><button data-p="high">Высокий</button>
@@ -516,7 +516,7 @@
           </select>
           <input id="fDueTime" type="time">
         </div>
-        <input id="fDueCustom" type="date" style="display:none;margin-top:10px">
+        <input id="fDueCustom" type="date" min="2020-01-01" max="2040-12-31" style="display:none;margin-top:10px">
         <div class="hint">Сначала дата, потом время. Уведомления приходят автоматически: за 30 минут до дедлайна и в момент дедлайна. «Каждый день» — для ежедневных задач: напомнит в указанное время каждый день.</div>
       </div>
       <div class="field" id="postponeField" style="display:none"><label>Отложить дедлайн</label>
@@ -1179,8 +1179,12 @@ function curPrio(){const on=document.querySelector('#fPrio button.on');return on
 document.getElementById('fCancel').onclick=closeTask;
 ov.addEventListener('click',e=>{if(e.target===ov)closeTask();});
 document.getElementById('fSave').onclick=()=>{
-  const title=document.getElementById('fTitle').value.trim();if(!title){document.getElementById('fTitle').focus();return;}
-  const data={title,desc:document.getElementById('fDesc').value.trim(),prio:curPrio(),...readDue()};
+  const title=document.getElementById('fTitle').value.trim().slice(0,80);if(!title){document.getElementById('fTitle').focus();return;}
+  if(dueDateSel.value==='custom'&&dueCustom.value){
+    const y=new Date(dueCustom.value).getFullYear();
+    if(!(y>=2020&&y<=2040)){toast('Неверная дата','Дедлайн должен быть не позже 2040 года.');dueCustom.focus();return;}
+  }
+  const data={title,desc:document.getElementById('fDesc').value.trim().slice(0,255),prio:curPrio(),...readDue()};
   const col=colById(editing.colId);
   if(editing.cardId)Object.assign(col.cards.find(c=>c.id===editing.cardId),data);
   else{if(!checkFreeLimit())return;col.cards.push({id:uid(),...data,created:Date.now()});}
