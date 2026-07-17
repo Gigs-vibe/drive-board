@@ -9,17 +9,26 @@ if errorlevel 1 goto fail
 
 echo.
 echo ============================================
-echo   Building .exe (this takes a couple minutes)...
+echo   Building app (onedir, this takes a couple minutes)...
 echo ============================================
-python -m PyInstaller --noconfirm --windowed --onefile --name "Taska" --icon "icon.ico" --add-data "board.html;." --add-data "icon.png;." --add-data "icon.ico;." app.py
+rmdir /s /q build 2>nul
+rmdir /s /q dist\Taska 2>nul
+python -m PyInstaller --noconfirm --windowed --onedir --name "Taska" --icon "icon.ico" --add-data "board.html;." --add-data "icon.png;." --add-data "icon.ico;." app.py
 if errorlevel 1 goto fail
 
 echo.
 echo ============================================
-echo   Done!  Your app is here:  dist\Taska.exe
+echo   Building installer (Inno Setup)...
 echo ============================================
-echo Copy Taska.exe anywhere and run it.
-echo Board data is saved next to the exe as drive-board.json
+"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" Taska.iss
+if errorlevel 1 goto fail
+
+echo.
+echo ============================================
+echo   Done!  Installer is here:  installer\TaskaSetup.exe
+echo ============================================
+echo Upload it to a GitHub release with asset name exactly TaskaSetup.exe
+echo Board data is saved in %%APPDATA%%\Taska
 echo.
 pause
 exit /b 0
