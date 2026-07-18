@@ -19,3 +19,5 @@ pc-next-session-prompt.md
 # WebView2 local storage (created at runtime)
 *.json
 !requirements.txt
+preview_icon.png
+preview_fg.png
