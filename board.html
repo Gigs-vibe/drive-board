@@ -879,19 +879,119 @@ async function cloudHeaders(){
   if(session&&session.expires_at&&Date.now()>session.expires_at-60000){try{await refreshToken();}catch(e){}}
   return {'apikey':SB_ANON,'Authorization':'Bearer '+(session?session.access_token:''),'Content-Type':'application/json'};
 }
+function fetchWithTimeout(url,opts,ms=15000){
+  return Promise.race([
+    fetch(url,opts),
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error('Timeout')),ms))
+  ]);
+}
+
+/* === Синхронизация v3 (перенесена с Android 19.07.2026) ===
+   _dirty — есть локальные правки, не доехавшие до облака (переживает перезапуск).
+   drive-synced-at — updated_at облачной записи, на которой основано наше состояние. */
+let _dirty=false;try{_dirty=localStorage.getItem('drive-dirty')==='1';}catch(e){}
+function setDirty(v){_dirty=v;try{v?localStorage.setItem('drive-dirty','1'):localStorage.removeItem('drive-dirty');}catch(e){}}
+function syncedAt(){try{return localStorage.getItem('drive-synced-at')||'';}catch(e){return'';}}
+function setSyncedAt(ts){try{ts?localStorage.setItem('drive-synced-at',ts):localStorage.removeItem('drive-synced-at');}catch(e){}}
+function isValidBoard(d){return !!(d&&Array.isArray(d.columns));} // защита от записей в старом/чужом формате
+const LAST_USER_KEY='drive-last-user';
+
 async function cloudPull(_retried){
   if(!session)return null;
-  const res=await fetch(SB_URL+'/rest/v1/boards?select=data&user_id=eq.'+session.user.id,{headers:await cloudHeaders()});
+  const res=await fetchWithTimeout(SB_URL+'/rest/v1/boards?select=data,updated_at&user_id=eq.'+session.user.id,{headers:await cloudHeaders()},15000);
   if(res.status===401&&!_retried){await refreshToken();return cloudPull(true);}
   if(!res.ok)throw new Error('pull '+res.status);
-  const rows=await res.json();return rows.length?rows[0].data:null;
+  const rows=await res.json();
+  return rows.length?{data:rows[0].data,updatedAt:rows[0].updated_at||''}:{data:null,updatedAt:''};
 }
+
+/* Пуш с оптимистичной блокировкой: если знаем базовый updated_at — PATCH с условием
+   «облако не менялось с нашего последнего синка»; 0 обновлённых строк = конфликт. */
 async function cloudPush(obj,_retried){
   if(!session)return;
-  const h=await cloudHeaders();h['Prefer']='resolution=merge-duplicates';
-  const res=await fetch(SB_URL+'/rest/v1/boards',{method:'POST',headers:h,body:JSON.stringify({user_id:session.user.id,data:obj,updated_at:new Date().toISOString()})});
+  const h=await cloudHeaders();
+  const ts=new Date().toISOString();
+  const body=JSON.stringify({user_id:session.user.id,data:obj,updated_at:ts});
+  const base=syncedAt();
+  let res;
+  if(base){
+    h['Prefer']='return=representation';
+    res=await fetchWithTimeout(SB_URL+'/rest/v1/boards?user_id=eq.'+session.user.id+'&updated_at=eq.'+encodeURIComponent(base),
+      {method:'PATCH',headers:h,body},15000);
+  }else{
+    h['Prefer']='resolution=merge-duplicates,return=representation';
+    res=await fetchWithTimeout(SB_URL+'/rest/v1/boards',{method:'POST',headers:h,body},15000);
+  }
   if(res.status===401&&!_retried){await refreshToken();return cloudPush(obj,true);}
   if(!res.ok)throw new Error('Ошибка сервера: '+res.status);
+  const rows=await res.json().catch(()=>[]);
+  if(base&&!rows.length){const err=new Error('conflict');err.conflict=true;throw err;}
+  setSyncedAt(ts);
+}
+
+let cloudReady=false,_resumePull=false,_lastPullAt=0;
+
+function anyOverlayOpen(){
+  if(document.querySelector('.overlay.open'))return true;
+  return ['profileOverlay','goalsOverlay','archiveOverlay','adminOverlay','teamOverlay','settingsOverlay','proOverlay','onboardingOverlay']
+    .some(id=>{const el=document.getElementById(id);return el&&el.classList.contains('open');});
+}
+
+async function adoptCloud(cloud){ // принять облачную доску как свою
+  state=migrate(cloud.data);
+  await Store.set(KEY,JSON.stringify(state));
+  if(cloud.data._profile){
+    const local=loadProfile();const cp=cloud.data._profile;
+    if(cp.firstName||cp.lastName||cp.photo){const merged={...local,...cp};saveProfile(merged);_profileCache=merged;}
+  }
+  setSyncedAt(cloud.updatedAt);
+  autoMoveNextweek();if(!Array.isArray(state.archive))state.archive=[];autoArchiveDone();
+  applyTheme();render();renderMotivation();updateProfileUI();updateHeaderAvatar();
+}
+
+async function pushNow(){ // отправить локальную доску; при конфликте побеждает облако
+  if(!session)return;
+  try{
+    await cloudPush({...state,_profile:loadProfile()});
+    setDirty(false);cloudReady=true;
+  }catch(e){
+    if(e&&e.conflict){
+      try{
+        const cloud=await cloudPull();
+        if(cloud&&isValidBoard(cloud.data)){
+          setDirty(false);cloudReady=true;
+          await adoptCloud(cloud);
+          toast('Доска обновлена','На другом устройстве данные оказались новее.');
+        }
+      }catch(_){}
+      return;
+    }
+    const now=Date.now();
+    if(now-lastSyncErrToast>60000){lastSyncErrToast=now;toast('Не синхронизировано','Изменения сохранены на компьютере — отправлю, когда появится связь.');}
+  }
+}
+
+async function pullFromCloud(){
+  if(!session||_resumePull||_savePending)return;
+  if(Date.now()-_lastPullAt<15000)return; // не дёргаем облако чаще раза в 15 секунд
+  if(anyOverlayOpen())return;
+  _resumePull=true;_lastPullAt=Date.now();
+  try{
+    if(_dirty){await pushNow();} // сначала дошлём свои правки; конфликт разрулит pushNow
+    else{
+      const cloud=await cloudPull();
+      if(cloud){
+        if(cloud.data&&!isValidBoard(cloud.data)){/* незнакомый формат — не трогаем */}
+        else{
+          cloudReady=true;
+          if(!cloud.data){setSyncedAt('');}
+          else if(_savePending||_dirty){/* правка случилась во время запроса — не затираем */}
+          else if(cloud.updatedAt!==syncedAt()){await adoptCloud(cloud);}
+        }
+      }
+    }
+  }catch(e){}
+  _resumePull=false;
 }
 
 function translateAuthError(m){
@@ -943,9 +1043,9 @@ function migrate(s){
   return s;
 }
 
-let saveTimer=null,lastSyncErrToast=0;
-function save(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>{Store.set(KEY,JSON.stringify(state));if(session)cloudPush({...state,_profile:loadProfile()}).catch(e=>{const now=Date.now();if(now-lastSyncErrToast>60000){lastSyncErrToast=now;toast('Не синхронизировано','Нажми «Синхронизировать» в меню ⋯');}});},300);}
-function pushProfileNow(){if(session)cloudPush({...state,_profile:loadProfile()}).catch(()=>{});}
+let saveTimer=null,lastSyncErrToast=0,_savePending=false;
+function save(){setDirty(true);_savePending=true;clearTimeout(saveTimer);saveTimer=setTimeout(()=>{_savePending=false;Store.set(KEY,JSON.stringify(state));if(session)pushNow();},300);}
+function pushProfileNow(){if(session){setDirty(true);pushNow();}}
 function colByRole(r){return state.columns.find(c=>c.role===r);}
 function colById(id){return state.columns.find(c=>c.id===id);}
 
@@ -1301,11 +1401,22 @@ function showToast(title,sub,cls){toast(title,sub,cls);}
 document.getElementById('syncBtn').onclick=async()=>{
   closeMenus();
   if(!session){toast('Не выполнен вход','Войди в аккаунт для синхронизации.');return;}
-  toast('Синхронизация…','Отправляем данные в облако.');
+  toast('Синхронизация…','Обмениваемся данными с облаком.');
   try{
-    await cloudPush({...state,_profile:loadProfile()});
-    toast('Синхронизировано','Данные сохранены в облаке.','green');
-  }catch(e){toast('Ошибка синхронизации',e.message||'Проверь подключение к интернету.');}
+    if(_dirty){await cloudPush({...state,_profile:loadProfile()});setDirty(false);cloudReady=true;}
+    const cloud=await cloudPull();
+    if(cloud&&cloud.data&&isValidBoard(cloud.data)&&!_dirty&&cloud.updatedAt!==syncedAt()){await adoptCloud(cloud);}
+    else if(cloud&&!cloud.data){setSyncedAt('');await cloudPush({...state,_profile:loadProfile()});cloudReady=true;}
+    toast('Синхронизировано','Данные сверены с облаком.','green');
+  }catch(e){
+    if(e&&e.conflict){
+      try{
+        const cloud=await cloudPull();
+        if(cloud&&isValidBoard(cloud.data)){setDirty(false);cloudReady=true;await adoptCloud(cloud);toast('Доска обновлена','На другом устройстве данные оказались новее.','green');return;}
+      }catch(_){}
+    }
+    toast('Ошибка синхронизации',e.message||'Проверь подключение к интернету.');
+  }
 };
 document.getElementById('excelBtn').onclick=async()=>{closeMenus();
   if(window.pywebview&&window.pywebview.api&&window.pywebview.api.export_excel){
@@ -1468,18 +1579,43 @@ function updateHeaderAvatar(){
 }
 
 async function startApp(){
-  state=null;
-  let cloudData=null;
-  if(session){try{cloudData=await cloudPull();if(cloudData)state=migrate(cloudData);}catch(e){}}
-  if(!state){const local=await Store.get(KEY);state=local?migrate(JSON.parse(local)):defaultState();}
-  // синхронизация профиля из облака
-  if(cloudData&&cloudData._profile){
-    const local=loadProfile();
-    const cp=cloudData._profile;
-    if(cp.firstName||cp.lastName||cp.photo){
-      const merged={...local,...cp};
-      saveProfile(merged);_profileCache=merged;
+  // Смена аккаунта: данные прежнего пользователя не показываем и не поднимаем
+  const currentUserId=session?session.user.id:null;
+  const lastUserId=localStorage.getItem(LAST_USER_KEY);
+  let accountSwitched=false;
+  if(currentUserId&&currentUserId!==lastUserId){
+    if(lastUserId){
+      accountSwitched=true;
+      try{localStorage.removeItem(PROFILE_KEY);localStorage.removeItem(PRO_CACHE_KEY);}catch(e){}
+      _profileCache=null;_proStatus=null;
+      setDirty(false);setSyncedAt('');
     }
+    localStorage.setItem(LAST_USER_KEY,currentUserId);
+  }
+  state=null;cloudReady=false;let needPush=false;
+  if(session){try{
+    const cloud=await cloudPull();
+    if(cloud){
+      if(cloud.data&&!isValidBoard(cloud.data)){
+        /* незнакомый формат записи в облаке — не принимаем и не пушим, чтобы ничего не разрушить */
+      }else{
+        cloudReady=true;
+        if(!cloud.data){setSyncedAt('');needPush=true;} // в облаке пусто — зальём локальную доску
+        else if(_dirty){needPush=true;} // есть недосланные правки — дошлём их (конфликт разрулит pushNow)
+        else{
+          state=migrate(cloud.data);
+          if(cloud.data._profile){
+            const local=loadProfile();const cp=cloud.data._profile;
+            if(cp.firstName||cp.lastName||cp.photo){const merged={...local,...cp};saveProfile(merged);_profileCache=merged;}
+          }
+          setSyncedAt(cloud.updatedAt);
+        }
+      }
+    }
+  }catch(e){}}
+  if(!state){
+    if(accountSwitched){state=defaultState();} // доску прежнего аккаунта не поднимаем
+    else{const local=await Store.get(KEY);state=local?migrate(JSON.parse(local)):defaultState();}
   }
   await Store.set(KEY,JSON.stringify(state));
   autoMoveNextweek();
@@ -1488,10 +1624,14 @@ async function startApp(){
   applyTheme();render();renderMotivation();updateAccountUI();hideAuth();
   updateProfileUI();updateHeaderAvatar();
   checkProStatus();
-  if(session)cloudPush({...state,_profile:loadProfile()}).catch(()=>{});
+  if(session&&needPush)pushNow();
   if(!state._onboardingDone&&!localStorage.getItem(OB_KEY))setTimeout(startOnboarding,600);
   if(!window.__started){
     window.__started=true;
+    // подтяжка из облака при возврате к окну / появлении сети
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')pullFromCloud();});
+    window.addEventListener('focus',()=>pullFromCloud());
+    window.addEventListener('online',()=>pullFromCloud());
     if(!window.__PYWV&&'Notification'in window&&Notification.permission==='default'){try{Notification.requestPermission();}catch(e){}}
     checkReminders();
     setInterval(checkReminders,15000);
