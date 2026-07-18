@@ -13,15 +13,22 @@ RES = r"D:\Творчество\drive-mobile\android\app\src\main\res"
 DIST = r"D:\Творчество\dist"
 
 
+_grad_cache = {}
+
+
 def gradient(size):
-    """Диагональный градиент C1->C2."""
-    img = Image.new("RGB", (size, size))
-    px = img.load()
-    for y in range(size):
-        for x in range(size):
-            t = (x + y) / (2 * (size - 1))
-            px[x, y] = tuple(round(a + (b - a) * t) for a, b in zip(C1, C2))
-    return img
+    """Диагональный градиент C1->C2: считается на карте 128px и растягивается —
+    градиент гладкий, разницы не видно, а работает в сотни раз быстрее."""
+    if size not in _grad_cache:
+        small = 128
+        img = Image.new("RGB", (small, small))
+        px = img.load()
+        for y in range(small):
+            for x in range(small):
+                t = (x + y) / (2 * (small - 1))
+                px[x, y] = tuple(round(a + (b - a) * t) for a, b in zip(C1, C2))
+        _grad_cache[size] = img.resize((size, size), Image.BILINEAR)
+    return _grad_cache[size]
 
 
 def rounded_mask(size, radius_frac):
@@ -80,11 +87,13 @@ def main():
     fg = {"mdpi": 108, "hdpi": 162, "xhdpi": 216, "xxhdpi": 324, "xxxhdpi": 432}
     for dpi, s in launcher.items():
         folder = os.path.join(RES, "mipmap-" + dpi)
+        os.makedirs(folder, exist_ok=True)
         make_full_icon(s, "rounded").save(os.path.join(folder, "ic_launcher.png"))
         make_full_icon(s, "circle").save(os.path.join(folder, "ic_launcher_round.png"))
         print("mipmap-%s: launcher %d" % (dpi, s))
     for dpi, s in fg.items():
         folder = os.path.join(RES, "mipmap-" + dpi)
+        os.makedirs(folder, exist_ok=True)
         make_foreground(s).save(os.path.join(folder, "ic_launcher_foreground.png"))
         print("mipmap-%s: foreground %d" % (dpi, s))
 

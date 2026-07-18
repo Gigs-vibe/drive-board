@@ -1,10 +1,22 @@
 @echo off
 title Taska - build
+rem "python" из PATH может быть заглушкой Windows Store — ищем настоящий интерпретатор
+set "PY=%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe"
+if not exist "%PY%" set "PY=python"
+"%PY%" --version >nul 2>&1 || set "PY=py -3"
+
 echo ============================================
 echo   Installing dependencies...
 echo ============================================
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+%PY% -m pip install --upgrade pip
+%PY% -m pip install -r requirements.txt
+if errorlevel 1 goto fail
+
+echo.
+echo ============================================
+echo   Generating icons (gen_icons.py)...
+echo ============================================
+%PY% gen_icons.py
 if errorlevel 1 goto fail
 
 echo.
@@ -13,7 +25,7 @@ echo   Building app (onedir, this takes a couple minutes)...
 echo ============================================
 rmdir /s /q build 2>nul
 rmdir /s /q dist\Taska 2>nul
-python -m PyInstaller --noconfirm --windowed --onedir --name "Taska" --icon "icon.ico" --add-data "board.html;." --add-data "icon.png;." --add-data "icon.ico;." app.py
+%PY% -m PyInstaller --noconfirm --windowed --onedir --name "Taska" --icon "icon.ico" --add-data "board.html;." --add-data "icon.png;." --add-data "icon.ico;." app.py
 if errorlevel 1 goto fail
 
 echo.
