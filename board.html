@@ -783,13 +783,14 @@
 <div class="pro-overlay" id="proOverlay">
   <div class="pro-sheet">
     <div class="pro-emoji">⚡</div>
-    <h2>Нужен Pro-доступ</h2>
-    <p id="proOverlayMsg">Ты достиг лимита бесплатного плана. Обнови до Pro — и работай без ограничений.</p>
+    <h2>Taska Pro</h2>
+    <p id="proOverlayMsg">Всё, чем ты пользуешься сейчас, останется бесплатным. Pro добавит облачные суперсилы: 199 ₽/мес · 499 ₽/3 мес · 999 ₽/год.</p>
     <div class="pro-features">
-      <div class="pro-feature"><span class="pro-check">✓</span> Неограниченное количество задач</div>
-      <div class="pro-feature"><span class="pro-check">✓</span> Синхронизация с телефоном</div>
-      <div class="pro-feature"><span class="pro-check">✓</span> Облачное хранение данных</div>
-      <div class="pro-feature"><span class="pro-check">✓</span> Приоритетная поддержка</div>
+      <div class="pro-feature"><span class="pro-check">✓</span> Синхронизация ПК ↔ телефон</div>
+      <div class="pro-feature"><span class="pro-check">✓</span> Полный архив задач (в Free — последние 7 дней)</div>
+      <div class="pro-feature"><span class="pro-check">✓</span> Отчёт в Excel в один клик</div>
+      <div class="pro-feature"><span class="pro-check">✓</span> Пресеты колонок под свои проекты</div>
+      <div class="pro-feature"><span class="pro-check">✓</span> Моя команда — общие доски (скоро)</div>
     </div>
     <div class="pro-sheet-foot">
       <button class="tbtn primary" style="width:100%;padding:13px;font-size:15px" id="proUpgradeBtn">Получить Pro — 199 ₽/мес</button>
@@ -2016,7 +2017,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSettings();});
 /* ========== PRO UPGRADE MODAL ========== */
 const FREE_LIMIT=15;
 function openProModal(msg){
-  document.getElementById('proOverlayMsg').textContent=msg||'Ты достиг лимита бесплатного плана. Обнови до Pro — и работай без ограничений.';
+  document.getElementById('proOverlayMsg').textContent=msg||'Всё, чем ты пользуешься сейчас, останется бесплатным. Pro добавит облачные суперсилы: 199 ₽/мес · 499 ₽/3 мес · 999 ₽/год.';
   document.getElementById('proOverlay').classList.add('open');
 }
 function closeProModal(){document.getElementById('proOverlay').classList.remove('open');}
