@@ -407,6 +407,9 @@
   .team-empty h3{font-size:16px;font-weight:750;margin-bottom:8px}
   .team-empty p{font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:16px}
   .team-pro-badge{display:inline-block;font-size:11px;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;padding:3px 9px;border-radius:99px;margin-bottom:12px}
+  .team-chip{display:none;align-items:center;gap:5px;font-size:12px;font-weight:700;background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent);padding:3px 10px;border-radius:99px;cursor:pointer;max-width:180px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .team-body .preset-row{flex-wrap:wrap}
+  .team-sheet{max-height:88vh;overflow-y:auto}
 
   @media(max-width:1100px){.layout{grid-template-columns:1fr}}
   @media(max-width:720px){.board{grid-template-columns:1fr}.wide-col .cards{grid-template-columns:1fr}.banner{flex-wrap:wrap}header{flex-wrap:wrap}.search{order:5;width:100%}}
@@ -418,6 +421,7 @@
     <span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
     <span class="brand-name">Taska</span>
     <span class="pro-badge" id="proBadge">PRO</span>
+    <span class="team-chip" id="teamChip" style="display:none" title="Текущая доска — командная. Нажми, чтобы переключить."></span>
     <button class="hbtn" id="presetsBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg> Пресеты</button>
     <button class="hbtn" id="teamBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Моя команда</button>
   </div>
@@ -690,15 +694,7 @@
 <div class="team-overlay" id="teamOverlay">
   <div class="team-sheet">
     <h2>Моя команда</h2>
-    <div class="team-body">
-      <div class="team-empty">
-        <div class="team-empty-icon">👥</div>
-        <div class="team-pro-badge">PRO</div>
-        <h3>Работай вместе с командой</h3>
-        <p>Приглашай коллег, делитесь досками и задачами. Все изменения синхронизируются мгновенно.</p>
-        <button class="tbtn primary" id="teamUpgradeBtn" style="width:100%;max-width:240px;margin:0 auto">Получить Pro — 199 ₽/мес</button>
-      </div>
-    </div>
+    <div class="team-body" id="teamBody"></div>
     <div style="padding:14px 22px;border-top:1px solid var(--line);display:flex;justify-content:flex-end">
       <button class="tbtn" id="teamClose">Закрыть</button>
     </div>
@@ -916,16 +912,35 @@ function setSyncStatus(st){
 /* === Синхронизация v3 (перенесена с Android 19.07.2026) ===
    _dirty — есть локальные правки, не доехавшие до облака (переживает перезапуск).
    drive-synced-at — updated_at облачной записи, на которой основано наше состояние. */
-let _dirty=false;try{_dirty=localStorage.getItem('drive-dirty')==='1';}catch(e){}
-function setDirty(v){_dirty=v;try{v?localStorage.setItem('drive-dirty','1'):localStorage.removeItem('drive-dirty');}catch(e){}}
-function syncedAt(){try{return localStorage.getItem('drive-synced-at')||'';}catch(e){return'';}}
-function setSyncedAt(ts){try{ts?localStorage.setItem('drive-synced-at',ts):localStorage.removeItem('drive-synced-at');}catch(e){}}
+/* Текущая доска: '' — личная, иначе id команды. Все метки (dirty/synced-at/локальный кеш) — с суффиксом доски. */
+const TEAM_KEY='drive-current-team';
+let currentTeam='';try{currentTeam=localStorage.getItem(TEAM_KEY)||'';}catch(e){}
+function sfx(){return currentTeam?('-team-'+currentTeam):'';}
+let _dirty=false;try{_dirty=localStorage.getItem('drive-dirty'+sfx())==='1';}catch(e){}
+function setDirty(v){_dirty=v;try{v?localStorage.setItem('drive-dirty'+sfx(),'1'):localStorage.removeItem('drive-dirty'+sfx());}catch(e){}}
+function syncedAt(){try{return localStorage.getItem('drive-synced-at'+sfx())||'';}catch(e){return'';}}
+function setSyncedAt(ts){try{ts?localStorage.setItem('drive-synced-at'+sfx(),ts):localStorage.removeItem('drive-synced-at'+sfx());}catch(e){}}
+function boardPayload(){const p={...state};if(!currentTeam)p._profile=loadProfile();else delete p._profile;return p;}
+function emptyState(){const s=defaultState();s.columns.forEach(c=>c.cards=[]);return s;}
+/* Локальный кеш: личная доска — файл через pywebview (его же читает reminder_loop в app.py),
+   командные — localStorage. ponytail: фоновые напоминания из трея работают только для личной доски. */
+async function loadLocalBoard(){
+  if(currentTeam){try{const s=localStorage.getItem(KEY+sfx());return s?migrate(JSON.parse(s)):emptyState();}catch(e){return emptyState();}}
+  const local=await Store.get(KEY);return local?migrate(JSON.parse(local)):defaultState();
+}
+async function saveLocalBoard(){
+  if(currentTeam){try{localStorage.setItem(KEY+sfx(),JSON.stringify(state));}catch(e){}return;}
+  await Store.set(KEY,JSON.stringify(state));
+}
 function isValidBoard(d){return !!(d&&Array.isArray(d.columns));} // защита от записей в старом/чужом формате
 const LAST_USER_KEY='drive-last-user';
 
 async function cloudPull(_retried){
   if(!session)return null;
-  const res=await fetchWithTimeout(SB_URL+'/rest/v1/boards?select=data,updated_at&user_id=eq.'+session.user.id,{headers:await cloudHeaders()},15000);
+  const url=currentTeam
+    ?SB_URL+'/rest/v1/team_boards?select=data,updated_at&team_id=eq.'+currentTeam
+    :SB_URL+'/rest/v1/boards?select=data,updated_at&user_id=eq.'+session.user.id;
+  const res=await fetchWithTimeout(url,{headers:await cloudHeaders()},15000);
   if(res.status===401&&!_retried){await refreshToken();return cloudPull(true);}
   if(!res.ok)throw new Error('pull '+res.status);
   const rows=await res.json();
@@ -936,24 +951,27 @@ async function cloudPull(_retried){
    «облако не менялось с нашего последнего синка»; 0 обновлённых строк = конфликт. */
 async function cloudPush(obj,_retried){
   if(!session)return;
+  const bk=sfx(); // на какую доску шлём — защита от переключения доски во время запроса
   const h=await cloudHeaders();
   const ts=new Date().toISOString();
-  const body=JSON.stringify({user_id:session.user.id,data:obj,updated_at:ts});
+  const table=currentTeam?'team_boards':'boards';
+  const keyFilter=currentTeam?('team_id=eq.'+currentTeam):('user_id=eq.'+session.user.id);
+  const body=JSON.stringify(currentTeam?{team_id:currentTeam,data:obj,updated_at:ts}:{user_id:session.user.id,data:obj,updated_at:ts});
   const base=syncedAt();
   let res;
   if(base){
     h['Prefer']='return=representation';
-    res=await fetchWithTimeout(SB_URL+'/rest/v1/boards?user_id=eq.'+session.user.id+'&updated_at=eq.'+encodeURIComponent(base),
+    res=await fetchWithTimeout(SB_URL+'/rest/v1/'+table+'?'+keyFilter+'&updated_at=eq.'+encodeURIComponent(base),
       {method:'PATCH',headers:h,body},15000);
   }else{
     h['Prefer']='resolution=merge-duplicates,return=representation';
-    res=await fetchWithTimeout(SB_URL+'/rest/v1/boards',{method:'POST',headers:h,body},15000);
+    res=await fetchWithTimeout(SB_URL+'/rest/v1/'+table,{method:'POST',headers:h,body},15000);
   }
   if(res.status===401&&!_retried){await refreshToken();return cloudPush(obj,true);}
   if(!res.ok)throw new Error('Ошибка сервера: '+res.status);
   const rows=await res.json().catch(()=>[]);
   if(base&&!rows.length){const err=new Error('conflict');err.conflict=true;throw err;}
-  setSyncedAt(ts);
+  if(bk===sfx())setSyncedAt(ts);
 }
 
 let cloudReady=false,_resumePull=false,_lastPullAt=0;
@@ -966,8 +984,8 @@ function anyOverlayOpen(){
 
 async function adoptCloud(cloud){ // принять облачную доску как свою
   state=migrate(cloud.data);
-  await Store.set(KEY,JSON.stringify(state));
-  if(cloud.data._profile){
+  await saveLocalBoard();
+  if(!currentTeam&&cloud.data._profile){
     const local=loadProfile();const cp=cloud.data._profile;
     if(cp.firstName||cp.lastName||cp.photo){const merged={...local,...cp};saveProfile(merged);_profileCache=merged;}
   }
@@ -980,7 +998,7 @@ async function pushNow(){ // отправить локальную доску; �
   if(!session)return;
   setSyncStatus('sync');
   try{
-    await cloudPush({...state,_profile:loadProfile()});
+    await cloudPush(boardPayload());
     setDirty(false);cloudReady=true;
     setSyncStatus('ok');
   }catch(e){
@@ -1078,7 +1096,7 @@ function migrate(s){
 }
 
 let saveTimer=null,lastSyncErrToast=0,_savePending=false;
-function save(){setDirty(true);_savePending=true;clearTimeout(saveTimer);saveTimer=setTimeout(()=>{_savePending=false;Store.set(KEY,JSON.stringify(state));if(session)pushNow();},300);}
+function save(){setDirty(true);_savePending=true;clearTimeout(saveTimer);saveTimer=setTimeout(()=>{_savePending=false;saveLocalBoard();if(session)pushNow();},300);}
 function pushProfileNow(){if(session){setDirty(true);pushNow();}}
 function colByRole(r){return state.columns.find(c=>c.role===r);}
 function colById(id){return state.columns.find(c=>c.id===id);}
@@ -1438,10 +1456,10 @@ document.getElementById('syncBtn').onclick=async()=>{
   toast('Синхронизация…','Обмениваемся данными с облаком.');
   setSyncStatus('sync');
   try{
-    if(_dirty){await cloudPush({...state,_profile:loadProfile()});setDirty(false);cloudReady=true;}
+    if(_dirty){await cloudPush(boardPayload());setDirty(false);cloudReady=true;}
     const cloud=await cloudPull();
     if(cloud&&cloud.data&&isValidBoard(cloud.data)&&!_dirty&&cloud.updatedAt!==syncedAt()){await adoptCloud(cloud);}
-    else if(cloud&&!cloud.data){setSyncedAt('');await cloudPush({...state,_profile:loadProfile()});cloudReady=true;}
+    else if(cloud&&!cloud.data){setSyncedAt('');await cloudPush(boardPayload());cloudReady=true;}
     setSyncStatus('ok');
     toast('Синхронизировано','Данные сверены с облаком.','green');
   }catch(e){
@@ -1627,6 +1645,7 @@ async function startApp(){
       accountSwitched=true;
       try{localStorage.removeItem(PROFILE_KEY);localStorage.removeItem(PRO_CACHE_KEY);}catch(e){}
       _profileCache=null;_proStatus=null;
+      currentTeam='';try{localStorage.removeItem(TEAM_KEY);}catch(e){} // чужую команду не поднимаем
       setDirty(false);setSyncedAt('');
     }
     localStorage.setItem(LAST_USER_KEY,currentUserId);
@@ -1643,7 +1662,7 @@ async function startApp(){
         else if(_dirty){needPush=true;} // есть недосланные правки — дошлём их (конфликт разрулит pushNow)
         else{
           state=migrate(cloud.data);
-          if(cloud.data._profile){
+          if(!currentTeam&&cloud.data._profile){
             const local=loadProfile();const cp=cloud.data._profile;
             if(cp.firstName||cp.lastName||cp.photo){const merged={...local,...cp};saveProfile(merged);_profileCache=merged;}
           }
@@ -1654,15 +1673,16 @@ async function startApp(){
   }catch(e){}}
   if(!state){
     if(accountSwitched){state=defaultState();} // доску прежнего аккаунта не поднимаем
-    else{const local=await Store.get(KEY);state=local?migrate(JSON.parse(local)):defaultState();}
+    else{state=await loadLocalBoard();}
   }
-  await Store.set(KEY,JSON.stringify(state));
+  await saveLocalBoard();
   autoMoveNextweek();
   if(!Array.isArray(state.archive))state.archive=[];
   autoArchiveDone();
   applyTheme();render();renderMotivation();updateAccountUI();hideAuth();
   updateProfileUI();updateHeaderAvatar();
   checkProStatus();
+  updateTeamChip();if(session&&currentTeam)refreshTeamsQuiet();
   if(session)setSyncStatus(cloudReady?'ok':'err');
   if(session&&needPush)pushNow();
   if(!state._onboardingDone&&!localStorage.getItem(OB_KEY))setTimeout(startOnboarding,600);
@@ -2026,11 +2046,169 @@ document.querySelectorAll('.bgswatch').forEach(btn=>btn.onclick=()=>applyBgColor
 document.getElementById('bgColorPicker').oninput=e=>applyBgColor('custom',e.target.value);
 
 /* ========== КОМАНДА ========== */
-document.getElementById('teamBtn').onclick=()=>{closeMenus();openTeam();};
+/* ========== МОЯ КОМАНДА (общие доски, таблицы teams/team_members/team_boards) ========== */
+let _teams=[],_teamOpenId=null; // _teamOpenId — чья панель участников развёрнута
+async function sbApi(path,opts,_retried){
+  const h=await cloudHeaders();
+  if(opts&&opts.prefer)h['Prefer']=opts.prefer;
+  const res=await fetchWithTimeout(SB_URL+'/rest/v1/'+path,
+    {method:(opts&&opts.method)||'GET',headers:h,body:(opts&&opts.body)?JSON.stringify(opts.body):undefined},15000);
+  if(res.status===401&&!_retried){await refreshToken();return sbApi(path,opts,true);}
+  if(!res.ok)throw new Error('Ошибка '+res.status);
+  return res.json().catch(()=>[]);
+}
+function myEmail(){return session&&session.user?(session.user.email||'').toLowerCase():'';}
+async function refreshTeamsQuiet(){if(!session)return;try{_teams=await sbApi('teams?select=id,name,owner_id&order=created_at');}catch(e){}updateTeamChip();}
+function updateTeamChip(){
+  const chip=document.getElementById('teamChip');if(!chip)return;
+  if(currentTeam){
+    const t=_teams.find(x=>x.id===currentTeam);
+    chip.textContent='👥 '+((t&&t.name)||'Команда');
+    chip.style.display='inline-flex';
+  }else chip.style.display='none';
+}
+async function openTeam(){
+  closeMenus();
+  document.getElementById('teamOverlay').classList.add('open');
+  const body=document.getElementById('teamBody');
+  if(!session){body.innerHTML='<div class="team-empty"><div class="team-empty-icon">👥</div><h3>Нужен аккаунт</h3><p>Войди в аккаунт, чтобы создавать команды и работать над общими досками.</p></div>';return;}
+  body.innerHTML='<div class="empty-hint">Загрузка…</div>';
+  try{_teams=await sbApi('teams?select=id,name,owner_id&order=created_at');}
+  catch(e){body.innerHTML='<div class="empty-hint">Не удалось загрузить команды. Проверь интернет и попробуй ещё раз.</div>';return;}
+  updateTeamChip();renderTeams();
+}
+function renderTeams(){
+  const body=document.getElementById('teamBody');
+  body.innerHTML='';
+  const hint=document.createElement('div');hint.className='hint';
+  hint.textContent='Команда — это общая доска: все участники видят и редактируют одни и те же задачи.';
+  body.appendChild(hint);
+  const cur=mark=>{const s=document.createElement('span');s.style.cssText='font-size:12px;font-weight:700;color:var(--accent);align-self:center';s.textContent='текущая';return s;};
+  // Личная доска
+  const mine=document.createElement('div');mine.className='preset-row';
+  mine.innerHTML='<div class="preset-info"><b>🏠 Моя доска</b><span>личные задачи</span></div><div class="preset-actions"></div>';
+  const mact=mine.querySelector('.preset-actions');
+  if(currentTeam){const b=document.createElement('button');b.className='tbtn';b.textContent='Открыть';b.onclick=()=>switchBoard('');mact.appendChild(b);}
+  else mact.appendChild(cur());
+  body.appendChild(mine);
+  // Команды
+  _teams.forEach(t=>{
+    const isOwner=t.owner_id===session.user.id;
+    const row=document.createElement('div');row.className='preset-row';
+    row.innerHTML='<div class="preset-info"><b>👥 '+esc(t.name)+'</b><span>'+(isOwner?'ты владелец':'участник')+'</span></div><div class="preset-actions"></div>';
+    const act=row.querySelector('.preset-actions');
+    if(currentTeam===t.id)act.appendChild(cur());
+    else{const b=document.createElement('button');b.className='tbtn';b.textContent='Открыть';b.onclick=()=>switchBoard(t.id);act.appendChild(b);}
+    const gear=document.createElement('button');gear.className='tbtn';gear.textContent=_teamOpenId===t.id?'Скрыть':'Участники';
+    gear.onclick=()=>{_teamOpenId=_teamOpenId===t.id?null:t.id;renderTeams();};
+    act.appendChild(gear);
+    body.appendChild(row);
+    if(_teamOpenId===t.id)body.appendChild(buildMembersPanel(t,isOwner));
+  });
+  // Создание команды
+  const cr=document.createElement('div');cr.style.cssText='display:flex;gap:8px;margin-top:6px';
+  cr.innerHTML='<input id="newTeamName" placeholder="Название новой команды" maxlength="40" style="flex:1;padding:10px 13px;border:1px solid var(--line);border-radius:11px;background:var(--bg)"><button class="tbtn primary">Создать</button>';
+  cr.querySelector('button').onclick=createTeamClick;
+  cr.querySelector('input').addEventListener('keydown',e=>{if(e.key==='Enter')createTeamClick();});
+  body.appendChild(cr);
+}
+async function createTeamClick(){
+  const inp=document.getElementById('newTeamName');
+  const name=(inp.value||'').trim();
+  if(!name){inp.focus();return;}
+  try{
+    const rows=await sbApi('teams',{method:'POST',body:{name,owner_id:session.user.id},prefer:'return=representation'});
+    const t=rows[0];
+    await sbApi('team_members',{method:'POST',body:{team_id:t.id,email:myEmail(),user_id:session.user.id,role:'owner'}});
+    toast('Команда создана',name+' — пригласи участников по email.','green');
+    _teams.push(t);_teamOpenId=t.id;renderTeams();
+  }catch(e){toast('Не получилось',e.message||'Ошибка создания команды');}
+}
+function buildMembersPanel(t,isOwner){
+  const box=document.createElement('div');
+  box.style.cssText='background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:12px;display:flex;flex-direction:column;gap:8px';
+  box.innerHTML='<div class="empty-hint">Загрузка участников…</div>';
+  (async()=>{
+    let members=[];
+    try{members=await sbApi('team_members?select=email,role&team_id=eq.'+t.id+'&order=created_at');}
+    catch(e){box.innerHTML='<div class="empty-hint">Не удалось загрузить участников.</div>';return;}
+    box.innerHTML='';
+    members.forEach(m=>{
+      const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:8px';
+      row.innerHTML='<span style="flex:1;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis">'+esc(m.email)+'</span><span style="font-size:11.5px;color:var(--muted)">'+(m.role==='owner'?'владелец':'участник')+'</span>';
+      if(isOwner&&m.role!=='owner'){
+        const del=document.createElement('button');del.className='admin-revoke';del.textContent='Убрать';
+        del.onclick=async()=>{if(!confirm('Убрать '+m.email+' из команды?'))return;
+          try{await sbApi('team_members?team_id=eq.'+t.id+'&email=eq.'+encodeURIComponent(m.email),{method:'DELETE'});renderTeams();}
+          catch(e){toast('Не получилось',e.message);}};
+        row.appendChild(del);
+      }
+      box.appendChild(row);
+    });
+    if(isOwner){
+      const add=document.createElement('div');add.style.cssText='display:flex;gap:8px;margin-top:4px';
+      add.innerHTML='<input type="email" placeholder="email участника" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);font-size:13px"><button class="tbtn primary" style="padding:8px 14px">Пригласить</button>';
+      const inp=add.querySelector('input');
+      add.querySelector('button').onclick=async()=>{
+        const em=(inp.value||'').trim().toLowerCase();
+        if(!em||!em.includes('@')){inp.focus();return;}
+        try{
+          await sbApi('team_members',{method:'POST',body:{team_id:t.id,email:em,role:'member'}});
+          toast('Приглашение отправлено',em+' увидит команду, когда войдёт в Taska с этой почтой.','green');
+          renderTeams();
+        }catch(e){toast('Не получилось',(''+e.message).includes('409')?'Этот email уже в команде.':(e.message||'Ошибка'));}
+      };
+      box.appendChild(add);
+      const delTeam=document.createElement('button');delTeam.className='tbtn danger';delTeam.style.cssText='align-self:flex-start';delTeam.textContent='Удалить команду';
+      delTeam.onclick=async()=>{
+        if(!confirm('Удалить команду «'+t.name+'» вместе с общей доской? Это действие нельзя отменить.'))return;
+        try{
+          await sbApi('teams?id=eq.'+t.id,{method:'DELETE'});
+          if(currentTeam===t.id)await switchBoard('');
+          _teams=_teams.filter(x=>x.id!==t.id);_teamOpenId=null;renderTeams();
+          toast('Команда удалена',t.name);
+        }catch(e){toast('Не получилось',e.message);}
+      };
+      box.appendChild(delTeam);
+    }
+  })();
+  return box;
+}
+/* Переключение доски: ''=личная, иначе id команды */
+async function switchBoard(teamId){
+  teamId=teamId||'';
+  if(teamId===currentTeam)return;
+  clearTimeout(saveTimer);_savePending=false;
+  if(state)await saveLocalBoard();
+  if(session&&_dirty){try{await pushNow();}catch(e){}} // дошлём правки текущей доски
+  currentTeam=teamId;
+  try{teamId?localStorage.setItem(TEAM_KEY,teamId):localStorage.removeItem(TEAM_KEY);}catch(e){}
+  _dirty=false;try{_dirty=localStorage.getItem('drive-dirty'+sfx())==='1';}catch(e){}
+  cloudReady=false;_lastPullAt=0;
+  state=await loadLocalBoard();
+  applyTheme();render();renderMotivation();updateTeamChip();
+  document.getElementById('teamOverlay').classList.remove('open');
+  setSyncStatus('sync');
+  try{
+    const cloud=await cloudPull();
+    if(cloud){
+      if(cloud.data&&!isValidBoard(cloud.data)){/* незнакомый формат — не трогаем */}
+      else{
+        cloudReady=true;
+        if(!cloud.data){setSyncedAt('');await pushNow();} // общая доска ещё пуста — зальём свою копию
+        else if(_dirty){await pushNow();}
+        else if(cloud.updatedAt!==syncedAt()){await adoptCloud(cloud);}
+      }
+    }
+    setSyncStatus(cloudReady?'ok':'err');
+  }catch(e){setSyncStatus('err');}
+  const t=_teams.find(x=>x.id===teamId);
+  toast('Доска переключена',teamId?('Команда: '+((t&&t.name)||'')):'Моя доска','green');
+}
+document.getElementById('teamBtn').onclick=()=>{openTeam();};
+document.getElementById('teamChip').onclick=()=>{openTeam();};
 document.getElementById('teamClose').onclick=()=>document.getElementById('teamOverlay').classList.remove('open');
 document.getElementById('teamOverlay').addEventListener('click',e=>{if(e.target===document.getElementById('teamOverlay'))document.getElementById('teamOverlay').classList.remove('open');});
-document.getElementById('teamUpgradeBtn').onclick=()=>{document.getElementById('teamOverlay').classList.remove('open');openProModal();};
-function openTeam(){closeMenus();document.getElementById('teamOverlay').classList.add('open');}
 
 /* ========== НАСТРОЙКИ ========== */
 function openSettings(){
