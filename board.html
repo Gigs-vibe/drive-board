@@ -937,7 +937,12 @@ async function loadLocalBoard(){
   const local=await Store.get(KEY);return local?migrate(JSON.parse(local)):defaultState();
 }
 async function saveLocalBoard(){
-  if(currentTeam){try{localStorage.setItem(KEY+sfx(),JSON.stringify(state));}catch(e){}return;}
+  if(currentTeam){
+    try{localStorage.setItem(KEY+sfx(),JSON.stringify(state));}catch(e){}
+    // свои карточки сразу в «увиденные» — teamWatch не должен пушить о них
+    try{const s=teamSeen(currentTeam);state.columns.forEach(c=>(c.cards||[]).forEach(k=>s.add(k.id)));saveTeamSeen(currentTeam,s);}catch(e){}
+    return;
+  }
   await Store.set(KEY,JSON.stringify(state));
 }
 function isValidBoard(d){return !!(d&&Array.isArray(d.columns));} // защита от записей в старом/чужом формате
@@ -1705,7 +1710,7 @@ async function startApp(){
   applyTheme();render();renderMotivation();updateAccountUI();hideAuth();
   updateProfileUI();updateHeaderAvatar();
   checkProStatus();
-  updateTeamChip();if(session&&currentTeam)refreshTeamsQuiet();
+  updateTeamChip();if(session){refreshTeamsQuiet();startTeamWatch();}
   if(session)setTimeout(checkTeamInvites,1200);
   if(session)setSyncStatus(cloudReady?'ok':'err');
   if(session&&needPush)pushNow();
@@ -2116,6 +2121,40 @@ async function answerInvite(yes){
 }
 document.getElementById('inviteYes').onclick=()=>answerInvite(true);
 document.getElementById('inviteNo').onclick=()=>answerInvite(false);
+
+/* --- пуш о новых задачах в командных досках (проверка раз в минуту) --- */
+function teamSeen(id){try{return new Set(JSON.parse(localStorage.getItem('drive-team-seen-'+id)||'[]'));}catch(e){return new Set();}}
+function saveTeamSeen(id,set){try{localStorage.setItem('drive-team-seen-'+id,JSON.stringify([...set]));}catch(e){}}
+function pushNotify(title,body){
+  if(window.__PYWV&&window.pywebview&&window.pywebview.api&&window.pywebview.api.notify){try{window.pywebview.api.notify(title,body);}catch(e){}}
+  else if('Notification'in window&&Notification.permission==='granted'){try{new Notification(title,{body});}catch(e){}}
+  toast(title,body,'green');
+}
+let _teamWatchBusy=false;
+async function teamWatch(){
+  if(!session||!_teams.length||_teamWatchBusy)return;
+  _teamWatchBusy=true;
+  try{
+    for(const t of _teams){
+      if(_invites.some(i=>i.team_id===t.id))continue; // приглашение ещё не принято
+      let rows;try{rows=await sbApi('team_boards?select=data&team_id=eq.'+t.id);}catch(e){continue;}
+      const d=rows.length&&rows[0].data;if(!isValidBoard(d))continue;
+      const ids=new Set();const cards=[];
+      d.columns.forEach(c=>(c.cards||[]).forEach(k=>{ids.add(k.id);cards.push(k);}));
+      const key='drive-team-seen-'+t.id;
+      const first=!localStorage.getItem(key);
+      if(!first){
+        const seen=teamSeen(t.id);
+        const fresh=cards.filter(k=>!seen.has(k.id));
+        const quiet=t.id===currentTeam&&document.hasFocus(); // доска и так перед глазами
+        if(!quiet)fresh.slice(0,3).forEach(k=>pushNotify('👥 '+t.name+': новая задача',k.title||''));
+      }
+      saveTeamSeen(t.id,ids);
+    }
+  }finally{_teamWatchBusy=false;}
+}
+let _teamWatchTimer=null;
+function startTeamWatch(){clearInterval(_teamWatchTimer);_teamWatchTimer=setInterval(teamWatch,60000);setTimeout(teamWatch,3000);}
 async function refreshTeamsQuiet(){if(!session)return;try{_teams=await sbApi('teams?select=id,name,owner_id&order=created_at');}catch(e){}updateTeamChip();}
 function updateTeamChip(){
   const chip=document.getElementById('teamChip');if(!chip)return;
