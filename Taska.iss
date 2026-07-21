@@ -1,7 +1,7 @@
 [Setup]
 AppId={{8A3F2C1D-4E5B-4F6A-9D7E-2B0C8F1A3E5D}
 AppName=Taska
-AppVersion=1.7.1
+AppVersion=1.7.2
 AppPublisher=Gigs-vibe
 DefaultDirName={localappdata}\Programs\Taska
 DefaultGroupName=Taska
