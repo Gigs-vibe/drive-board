@@ -812,6 +812,19 @@
   </div>
 </div>
 
+<!-- Приглашение в команду -->
+<div class="onboarding-overlay" id="inviteOverlay">
+  <div class="onboarding-sheet">
+    <span class="onboarding-emoji">👥</span>
+    <h2>Приглашение в команду</h2>
+    <p id="inviteText"></p>
+    <div class="onboarding-foot">
+      <button class="tbtn" id="inviteNo">Нет, спасибо</button>
+      <button class="tbtn primary" id="inviteYes">Да, вступить</button>
+    </div>
+  </div>
+</div>
+
 <div id="toasts"></div>
 
 <script>
@@ -973,7 +986,7 @@ let cloudReady=false,_resumePull=false,_lastPullAt=0;
 
 function anyOverlayOpen(){
   if(document.querySelector('.overlay.open'))return true;
-  return ['profileOverlay','goalsOverlay','archiveOverlay','adminOverlay','teamOverlay','settingsOverlay','proOverlay','onboardingOverlay']
+  return ['profileOverlay','goalsOverlay','archiveOverlay','adminOverlay','teamOverlay','settingsOverlay','proOverlay','onboardingOverlay','inviteOverlay']
     .some(id=>{const el=document.getElementById(id);return el&&el.classList.contains('open');});
 }
 
@@ -1265,6 +1278,12 @@ document.addEventListener('dragstart',()=>{
   },30);
 });
 document.addEventListener('dragend',()=>{clearInterval(_dragScrollTimer);_dragScrollTimer=null;_dragY=-1;});
+/* Колёсико мыши во время перетаскивания карточки тоже скроллит доску */
+document.addEventListener('wheel',e=>{
+  if(!dragSrc)return;
+  const sc=document.querySelector('.scroll');
+  if(sc)sc.scrollTop+=e.deltaY;
+},{passive:true});
 function dragAfter(wrap,y){const els=[...wrap.querySelectorAll('.card:not(.dragging)')];let best={off:-Infinity,el:null};
   for(const el of els){const r=el.getBoundingClientRect();const o=y-r.top-r.height/2;if(o<0&&o>best.off)best={off:o,el};}return best.el;}
 function commitDrop(targetColId,wrap){
@@ -1687,6 +1706,7 @@ async function startApp(){
   updateProfileUI();updateHeaderAvatar();
   checkProStatus();
   updateTeamChip();if(session&&currentTeam)refreshTeamsQuiet();
+  if(session)setTimeout(checkTeamInvites,1200);
   if(session)setSyncStatus(cloudReady?'ok':'err');
   if(session&&needPush)pushNow();
   if(!state._onboardingDone&&!localStorage.getItem(OB_KEY))setTimeout(startOnboarding,600);
@@ -2063,6 +2083,39 @@ async function sbApi(path,opts,_retried){
   return res.json().catch(()=>[]);
 }
 function myEmail(){return session&&session.user?(session.user.email||'').toLowerCase():'';}
+
+/* --- приглашения: попап при старте, «Да» = accepted:true, «Нет» = удалить свою строку --- */
+let _invites=[];
+async function checkTeamInvites(){
+  if(!session)return;
+  try{_invites=await sbApi('team_members?select=team_id,teams(name)&email=eq.'+encodeURIComponent(myEmail())+'&accepted=eq.false');}
+  catch(e){return;}
+  showNextInvite();
+}
+function showNextInvite(){
+  const ov=document.getElementById('inviteOverlay');
+  if(!_invites.length){ov.classList.remove('open');return;}
+  const inv=_invites[0];
+  document.getElementById('inviteText').textContent='Тебя пригласили в команду «'+((inv.teams&&inv.teams.name)||'без названия')+'» — общая доска задач для всех участников. Вступить?';
+  ov.classList.add('open');
+}
+async function answerInvite(yes){
+  const inv=_invites.shift();
+  const q='team_members?team_id=eq.'+inv.team_id+'&email=eq.'+encodeURIComponent(myEmail());
+  try{
+    if(yes){
+      await sbApi(q,{method:'PATCH',body:{accepted:true,user_id:session.user.id}});
+      toast('Добро пожаловать! 👥','Команда появилась в «Моя команда» — открой её, чтобы увидеть общую доску.','green');
+      refreshTeamsQuiet();
+    }else{
+      await sbApi(q,{method:'DELETE'});
+      toast('Приглашение отклонено','Если передумаешь — пусть пригласят ещё раз.');
+    }
+  }catch(e){toast('Не получилось',e.message);}
+  showNextInvite();
+}
+document.getElementById('inviteYes').onclick=()=>answerInvite(true);
+document.getElementById('inviteNo').onclick=()=>answerInvite(false);
 async function refreshTeamsQuiet(){if(!session)return;try{_teams=await sbApi('teams?select=id,name,owner_id&order=created_at');}catch(e){}updateTeamChip();}
 function updateTeamChip(){
   const chip=document.getElementById('teamChip');if(!chip)return;
@@ -2124,7 +2177,7 @@ async function createTeamClick(){
   try{
     const rows=await sbApi('teams',{method:'POST',body:{name,owner_id:session.user.id},prefer:'return=representation'});
     const t=rows[0];
-    await sbApi('team_members',{method:'POST',body:{team_id:t.id,email:myEmail(),user_id:session.user.id,role:'owner'}});
+    await sbApi('team_members',{method:'POST',body:{team_id:t.id,email:myEmail(),user_id:session.user.id,role:'owner',accepted:true}});
     toast('Команда создана',name+' — пригласи участников по email.','green');
     _teams.push(t);_teamOpenId=t.id;renderTeams();
   }catch(e){toast('Не получилось',e.message||'Ошибка создания команды');}

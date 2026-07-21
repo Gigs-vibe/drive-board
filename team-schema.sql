@@ -60,3 +60,14 @@ drop policy if exists tb_insert on public.team_boards;
 create policy tb_insert on public.team_boards for insert with check (public.is_team_member(team_id));
 drop policy if exists tb_update on public.team_boards;
 create policy tb_update on public.team_boards for update using (public.is_team_member(team_id));
+
+-- 21.07.2026: приглашения с подтверждением (v1.7.4)
+-- строка-инвайт создаётся с accepted=false; попап в приложении предлагает «Да/Нет»
+alter table public.team_members add column if not exists accepted boolean not null default false;
+update public.team_members set accepted = true where role = 'owner';
+-- участник может принять (update) или отклонить (delete) СВОЮ строку
+create policy tm_update_self on public.team_members for update
+  using (email = lower(coalesce(auth.jwt()->>'email','')))
+  with check (email = lower(coalesce(auth.jwt()->>'email','')));
+create policy tm_delete_self on public.team_members for delete
+  using (email = lower(coalesce(auth.jwt()->>'email','')));
