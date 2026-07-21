@@ -373,7 +373,7 @@
   .arc-mini-empty{font-size:12px;color:var(--muted);text-align:center;padding:10px 8px 14px;opacity:.85}
 
   /* --- индикатор синхронизации --- */
-  .sync-dot{width:11px;height:11px;border-radius:50%;background:var(--muted);opacity:.45;flex-shrink:0;cursor:pointer;transition:background .3s,opacity .3s}
+  .sync-dot{width:14px;height:14px;border-radius:50%;background:var(--muted);opacity:.8;flex-shrink:0;cursor:pointer;transition:background .3s,opacity .3s;border:2px solid var(--line)}
   .sync-dot.ok{background:#22b07d;opacity:1}
   .sync-dot.err{background:#ef4444;opacity:1}
   .sync-dot.sync{background:#f59e0b;opacity:1;animation:syncPulse 1s ease-in-out infinite}
@@ -1254,6 +1254,13 @@ function sortCol(colId){const c=colById(colId);const dir=sortDir[c.role]==='desc
 
 /* ---------- drag & drop ---------- */
 let dragSrc=null;
+/* Автопрокрутка при перетаскивании у верхнего/нижнего края (в узком окне колонки одна под другой) */
+document.addEventListener('dragover',e=>{
+  if(!dragSrc)return;
+  const sc=document.querySelector('.scroll');if(!sc)return;
+  if(e.clientY<90)sc.scrollTop-=18;
+  else if(e.clientY>window.innerHeight-90)sc.scrollTop+=18;
+});
 function dragAfter(wrap,y){const els=[...wrap.querySelectorAll('.card:not(.dragging)')];let best={off:-Infinity,el:null};
   for(const el of els){const r=el.getBoundingClientRect();const o=y-r.top-r.height/2;if(o<0&&o>best.off)best={off:o,el};}return best.el;}
 function commitDrop(targetColId,wrap){
@@ -1800,13 +1807,14 @@ document.getElementById('profilePhotoInput').onchange=e=>{
 
 /* ========== PRO-СТАТУС ========== */
 const PRO_CACHE_KEY='taska-pro-cache';
-const ADMIN_EMAIL='semenovps.smkt@gmail.com';
+const ADMIN_EMAILS=['semenovps.smkt@gmail.com','hatesamlit@gmail.com'];
+const isAdmin=em=>ADMIN_EMAILS.includes((em||'').toLowerCase());
 let _proStatus=null;
 function isProUser(){return _proStatus===true;}
 async function checkProStatus(){
   if(!session){_proStatus=null;updateProUI();return;}
   const email=session.user.email;
-  if(email===ADMIN_EMAIL){_proStatus=true;localStorage.setItem(PRO_CACHE_KEY,JSON.stringify({status:true,email,ts:Date.now()}));updateProUI();return;}
+  if(isAdmin(email)){_proStatus=true;localStorage.setItem(PRO_CACHE_KEY,JSON.stringify({status:true,email,ts:Date.now()}));updateProUI();return;}
   try{const c=JSON.parse(localStorage.getItem(PRO_CACHE_KEY)||'null');if(c&&c.email===email&&Date.now()-c.ts<3600000){_proStatus=c.status;updateProUI();return;}}catch(e){}
   try{
     const h=await cloudHeaders();
@@ -1950,7 +1958,7 @@ document.getElementById('adminGrantBtn').onclick=async()=>{
     document.getElementById('adminEmailInput').value='';loadAdminProList();toast('Pro выдан',email,'green');
   }catch(err){toast('Ошибка',''+err.message);}
 };
-document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.shiftKey&&e.key==='A'){e.preventDefault();if(session&&session.user&&session.user.email===ADMIN_EMAIL)openAdmin();}});
+document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.shiftKey&&e.code==='KeyA'){e.preventDefault();if(session&&session.user&&isAdmin(session.user.email))openAdmin();}});
 
 /* ========== accountBtn → выход / вход ========== */
 document.getElementById('accountBtn').onclick=()=>{
@@ -2054,7 +2062,7 @@ async function sbApi(path,opts,_retried){
   const res=await fetchWithTimeout(SB_URL+'/rest/v1/'+path,
     {method:(opts&&opts.method)||'GET',headers:h,body:(opts&&opts.body)?JSON.stringify(opts.body):undefined},15000);
   if(res.status===401&&!_retried){await refreshToken();return sbApi(path,opts,true);}
-  if(!res.ok)throw new Error('Ошибка '+res.status);
+  if(!res.ok){const t=await res.text().catch(()=>'');throw new Error('Ошибка '+res.status+(t?' — '+t.slice(0,160):''));}
   return res.json().catch(()=>[]);
 }
 function myEmail(){return session&&session.user?(session.user.email||'').toLowerCase():'';}
