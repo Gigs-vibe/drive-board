@@ -391,10 +391,10 @@
   .cswatch-custom{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);cursor:pointer;overflow:hidden;padding:0;flex-shrink:0;background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red)}
   /* --- цвет фона --- */
   .bg-swatches{display:flex;gap:7px;align-items:center;flex-shrink:0;flex-wrap:wrap;max-width:220px;justify-content:flex-end}
-  .bgswatch{width:22px;height:22px;border-radius:6px;border:2px solid var(--line);cursor:pointer;flex-shrink:0;transition:.15s;padding:0}
+  .bgswatch{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);cursor:pointer;flex-shrink:0;transition:.15s;padding:0}
   .bgswatch:hover{transform:scale(1.2)}
   .bgswatch.on{border-color:var(--text);transform:scale(1.15)}
-  .bgswatch-custom{width:22px;height:22px;border-radius:6px;border:2px solid var(--line);cursor:pointer;overflow:hidden;padding:0;flex-shrink:0;background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red)}
+  .bgswatch-custom{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);cursor:pointer;overflow:hidden;padding:0;flex-shrink:0;background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red)}
 
   /* --- команда --- */
   .team-overlay{position:fixed;inset:0;z-index:200;background:rgba(12,14,20,.55);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;padding:20px}
@@ -445,8 +445,6 @@
       <div class="menu-sep"></div>
       <button id="gifMgrBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg> Картинки, GIF и видео</button>
       <button id="excelBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 13 6 6M15 13l-6 6"/></svg> Отчёт в Excel</button>
-      <button id="exportBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg> Сохранить в файл</button>
-      <button id="importBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg> Загрузить из файла</button>
       <button id="syncBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg> Синхронизировать</button>
       <div class="menu-sep"></div>
       <button id="accountBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg> <span id="accountBtnLabel">Войти в аккаунт</span></button>
@@ -529,7 +527,7 @@
           <input id="fDueTime" type="time">
         </div>
         <input id="fDueCustom" type="date" min="2020-01-01" max="2040-12-31" style="display:none;margin-top:10px">
-        <div class="hint">Сначала дата, потом время. Уведомления приходят автоматически: за 30 минут до дедлайна и в момент дедлайна. «Каждый день» — для ежедневных задач: напомнит в указанное время каждый день.</div>
+        <div class="hint">Сначала дата, потом время. Уведомления приходят автоматически: заранее (время меняется в Настройках) и в момент дедлайна. «Каждый день» — для ежедневных задач: напомнит в указанное время каждый день.</div>
       </div>
       <div class="field" id="postponeField" style="display:none"><label>Отложить дедлайн</label>
         <div class="postpone-row">
@@ -602,7 +600,6 @@
   </div>
 </div>
 
-<input type="file" id="fileInput" accept="application/json" style="display:none">
 <input type="file" id="mediaInput" accept="image/*,video/*" multiple style="display:none">
 <input type="file" id="profilePhotoInput" accept="image/*" style="display:none">
 
@@ -742,23 +739,21 @@
     <div class="settings-section">Уведомления</div>
     <div class="settings-row">
       <div class="settings-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></div>
-      <div class="settings-row-info"><b>Напоминания о дедлайнах</b><span>За 30 минут до и в момент дедлайна (работает в фоне)</span></div>
+      <div class="settings-row-info"><b>Напоминания о дедлайнах</b><span>Придёт заранее и в момент дедлайна (работает в фоне)</span></div>
+      <select id="notifPreSel" style="flex-shrink:0;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">
+        <option value="5">за 5 мин</option>
+        <option value="10">за 10 мин</option>
+        <option value="15">за 15 мин</option>
+        <option value="30" selected>за 30 мин</option>
+        <option value="60">за 1 час</option>
+        <option value="120">за 2 часа</option>
+      </select>
     </div>
     <div class="settings-row">
       <div class="settings-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg></div>
       <div class="settings-row-info"><b>Ежедневные задачи</b><span>Напоминание в указанное время каждый день</span></div>
     </div>
     <div class="settings-section">Данные</div>
-    <div class="settings-row" style="cursor:pointer" id="sExportBtn">
-      <div class="settings-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></div>
-      <div class="settings-row-info"><b>Экспорт доски</b><span>Сохранить все задачи в JSON-файл</span></div>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;color:var(--muted);flex-shrink:0"><path d="M9 18l6-6-6-6"/></svg>
-    </div>
-    <div class="settings-row" style="cursor:pointer" id="sImportBtn">
-      <div class="settings-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg></div>
-      <div class="settings-row-info"><b>Импорт доски</b><span>Восстановить из JSON-файла</span></div>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;color:var(--muted);flex-shrink:0"><path d="M9 18l6-6-6-6"/></svg>
-    </div>
     <div class="settings-row" style="cursor:pointer" id="sExcelBtn">
       <div class="settings-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 13 6 6M15 13l-6 6"/></svg></div>
       <div class="settings-row-info"><b>Отчёт в Excel</b><span>Выгрузить все задачи и историю</span></div>
@@ -772,7 +767,7 @@
     <div class="settings-section">О приложении</div>
     <div class="settings-row">
       <div class="settings-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
-      <div class="settings-row-info"><b>Taska — доска задач</b><span id="sVersionLine">Версия 1.3</span></div>
+      <div class="settings-row-info"><b>Taska — доска задач</b><span id="sVersionLine">Версия —</span></div>
     </div>
     <div class="settings-row" style="cursor:pointer" id="sOnboardingBtn">
       <div class="settings-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.5 0 10-4.5 10-10S17.5 2 12 2 2 6.5 2 12s4.5 10 10 10z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg></div>
@@ -1254,13 +1249,22 @@ function sortCol(colId){const c=colById(colId);const dir=sortDir[c.role]==='desc
 
 /* ---------- drag & drop ---------- */
 let dragSrc=null;
-/* Автопрокрутка при перетаскивании у верхнего/нижнего края (в узком окне колонки одна под другой) */
-document.addEventListener('dragover',e=>{
-  if(!dragSrc)return;
-  const sc=document.querySelector('.scroll');if(!sc)return;
-  if(e.clientY<90)sc.scrollTop-=18;
-  else if(e.clientY>window.innerHeight-90)sc.scrollTop+=18;
+/* Автопрокрутка при перетаскивании у верхнего/нижнего края (в узком окне колонки одна под другой).
+   Таймер, а не только dragover: dragover при неподвижной мыши приходит редко, скролл был бы дёрганым. */
+let _dragY=-1,_dragScrollTimer=null;
+document.addEventListener('dragover',e=>{_dragY=e.clientY;});
+document.addEventListener('dragstart',()=>{
+  if(!dragSrc)return; // не карточка (картинка, текст) — не скроллим
+  clearInterval(_dragScrollTimer);
+  _dragScrollTimer=setInterval(()=>{
+    // после дропа render() снимает исходный узел и dragend может не дойти — гасим таймер по dragSrc
+    if(!dragSrc){clearInterval(_dragScrollTimer);_dragScrollTimer=null;_dragY=-1;return;}
+    const sc=document.querySelector('.scroll');if(!sc||_dragY<0)return;
+    if(_dragY<110)sc.scrollTop-=22;
+    else if(_dragY>window.innerHeight-110)sc.scrollTop+=22;
+  },30);
 });
+document.addEventListener('dragend',()=>{clearInterval(_dragScrollTimer);_dragScrollTimer=null;_dragY=-1;});
 function dragAfter(wrap,y){const els=[...wrap.querySelectorAll('.card:not(.dragging)')];let best={off:-Infinity,el:null};
   for(const el of els){const r=el.getBoundingClientRect();const o=y-r.top-r.height/2;if(o<0&&o>best.off)best={off:o,el};}return best.el;}
 function commitDrop(targetColId,wrap){
@@ -1369,12 +1373,15 @@ function checkReminders(){
       return;
     }
     if(!card.due)return;const t=new Date(card.due).getTime();
-    if(!card._n.pre&&now>=t-18e5&&now<t){card._n.pre=true;changed=true;notify('⏰ Через 30 минут: '+card.title,col.title);}
+    const preMs=notifPreMin()*60000;
+    if(!card._n.pre&&now>=t-preMs&&now<t){card._n.pre=true;changed=true;notify('⏰ Через '+notifPreMin()+' мин: '+card.title,col.title);}
     if(!card._n.at&&now>=t){card._n.at=true;changed=true;notify('⏰ Дедлайн: '+card.title,col.title);}
   });});
   if(changed)save();
 }
 function notify(title,body){try{new Notification(title,{body});}catch(e){}toast(title,body);}
+/* За сколько минут напоминать — настройка пользователя; лежит в state, её же читает Python из drive-board.json */
+function notifPreMin(){const v=state&&parseInt(state.notifPre);return v>0?v:30;}
 
 /* ---------- toast ---------- */
 function toast(title,sub,cls){const t=document.createElement('div');t.className='toast'+(cls?' '+cls:'');
@@ -1503,16 +1510,6 @@ function exportCSVFallback(){
   const blob=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='otchet-doska.csv';a.click();URL.revokeObjectURL(a.href);
   toast('Скачан CSV','В приложении (.exe) выгрузка будет в настоящий Excel с двумя листами.');
 }
-
-/* ---------- export / import ---------- */
-document.getElementById('exportBtn').onclick=()=>{closeMenus();
-  const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='moya-doska.json';a.click();URL.revokeObjectURL(a.href);};
-document.getElementById('importBtn').onclick=()=>{closeMenus();document.getElementById('fileInput').click();};
-document.getElementById('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
-  r.onload=()=>{try{state=migrate(JSON.parse(r.result));applyTheme();save();render();renderMotivation();toast('Загружено','Доска восстановлена из файла.');}
-  catch(err){toast('Не получилось','Файл повреждён или не от этого приложения.');}};
-  r.readAsText(f);e.target.value='';};
 
 /* ---------- presets ---------- */
 let editingPresetId=null;
@@ -2222,15 +2219,19 @@ document.getElementById('teamOverlay').addEventListener('click',e=>{if(e.target=
 function openSettings(){
   closeMenus();
   applyTheme();
+  document.getElementById('notifPreSel').value=String(notifPreMin());
   document.getElementById('settingsOverlay').classList.add('open');
 }
+document.getElementById('notifPreSel').onchange=e=>{
+  if(!state)return;
+  state.notifPre=parseInt(e.target.value)||30;save();
+  toast('Напоминания','Теперь предупрежу за '+state.notifPre+' мин до дедлайна.','green');
+};
 function closeSettings(){document.getElementById('settingsOverlay').classList.remove('open');}
 document.getElementById('settingsBtn').onclick=openSettings;
 document.getElementById('settingsClose').onclick=closeSettings;
 document.getElementById('settingsOverlay').addEventListener('click',e=>{if(e.target===document.getElementById('settingsOverlay'))closeSettings();});
 /* sGoalPick removed — goal pick is in the goals overlay only */
-document.getElementById('sExportBtn').onclick=()=>{closeSettings();document.getElementById('exportBtn').click();};
-document.getElementById('sImportBtn').onclick=()=>{closeSettings();document.getElementById('importBtn').click();};
 document.getElementById('sExcelBtn').onclick=()=>{closeSettings();document.getElementById('excelBtn').click();};
 document.getElementById('sClearBtn').onclick=()=>{
   if(!confirm('Удалить ВСЕ задачи? Это действие нельзя отменить.'))return;
@@ -2287,10 +2288,15 @@ document.getElementById('obNext').onclick=()=>{
 };
 document.getElementById('obSkip').onclick=closeOnboarding;
 
+/* Версия — отдельно от whenReady: на медленных ПК pywebviewready приходит позже 600мс,
+   и версия оставалась захардкоженной. Пробуем сразу и ещё раз по событию. */
+async function setVersionLine(){
+  try{const v=await window.pywebview.api.get_version();const el=document.getElementById('sVersionLine');if(el)el.textContent='Версия '+v;}catch(e){}
+}
+if(window.pywebview&&window.pywebview.api)setVersionLine();
+window.addEventListener('pywebviewready',setVersionLine);
+
 whenReady(async function(){
-  if(window.__PYWV&&window.pywebview&&window.pywebview.api){
-    try{const v=await window.pywebview.api.get_version();const el=document.getElementById('sVersionLine');if(el)el.textContent='Версия '+v;}catch(e){}
-  }
   loadSession();
   if(session){
     try{if(session.expires_at&&Date.now()>session.expires_at-60000)await refreshToken();await startApp();}
