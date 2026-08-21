@@ -185,7 +185,7 @@
   .sortbtn{width:28px;height:28px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;color:var(--muted)}
   .sortbtn:hover{background:var(--panel);color:var(--text)}
   .sortbtn svg{width:15px;height:15px}
-  .cards{padding:2px 12px 6px;display:flex;flex-direction:column;gap:10px;min-height:20px}
+  .cards{padding:2px 12px 6px;display:flex;flex-direction:column;gap:10px;min-height:56px}
   .cards.drop-hover{background:var(--accent-soft);outline:2px dashed var(--accent);outline-offset:-5px;border-radius:12px}
 
   .card{background:var(--card);border-radius:var(--r-sm);padding:12px 13px;border:1px solid var(--card-line);border-left:4px solid transparent;box-shadow:var(--shadow);cursor:grab;position:relative;transition:transform .08s,box-shadow .15s,opacity .15s}
@@ -527,7 +527,7 @@
           <input id="fDueTime" type="time">
         </div>
         <input id="fDueCustom" type="date" min="2020-01-01" max="2040-12-31" style="display:none;margin-top:10px">
-        <div class="hint">Сначала дата, потом время. Уведомления приходят автоматически: заранее (время меняется в Настройках) и в момент дедлайна. «Каждый день» — для ежедневных задач: напомнит в указанное время каждый день.</div>
+        <div class="hint">Время можно не указывать — тогда это просто срок «на день». Если время задано, уведомления придут автоматически: заранее (интервал меняется в Настройках) и в момент дедлайна. «Каждый день» — для ежедневных задач: напомнит в указанное время каждый день.</div>
       </div>
       <div class="field" id="postponeField" style="display:none"><label>Отложить дедлайн</label>
         <div class="postpone-row">
@@ -1153,8 +1153,12 @@ document.getElementById('motShuffle').onclick=()=>{renderMotivation();save();};
 
 /* ---------- render ---------- */
 const boardEl=document.getElementById('board'),sidebarEl=document.getElementById('sidebar'),wideEl=document.getElementById('wide');
-function dueState(due){if(!due)return null;const t=new Date(due).getTime(),n=Date.now();if(t<n)return'over';if(t-n<864e5)return'soon';return'ok';}
-function fmtDue(due){const d=new Date(due);const p=x=>String(x).padStart(2,'0');return `${p(d.getDate())}.${p(d.getMonth()+1)} ${p(d.getHours())}:${p(d.getMinutes())}`;}
+function dueState(due){if(!due)return null;
+  const t=new Date(due.includes('T')?due:due+'T23:59').getTime(),n=Date.now(); // без времени — срок до конца дня
+  if(t<n)return'over';if(t-n<864e5)return'soon';return'ok';}
+function fmtDue(due){const p=x=>String(x).padStart(2,'0');
+  const hasT=due.includes('T');const d=new Date(hasT?due:due+'T00:00');
+  return `${p(d.getDate())}.${p(d.getMonth()+1)}`+(hasT?` ${p(d.getHours())}:${p(d.getMinutes())}`:'');}
 
 function makeColumn(col,isPanel,isWide){
   const el=document.createElement('div');el.className='col'+(isPanel?' panel':'')+(isWide?' wide-col':'');el.dataset.col=col.id;
@@ -1175,11 +1179,12 @@ function makeColumn(col,isPanel,isWide){
   tit.addEventListener('keydown',e=>{if(e.key==='Enter')tit.blur();});
   el.querySelector('.add-card').onclick=()=>openTask(col.id,null);
   const sb=el.querySelector('.sortbtn');if(sb)sb.onclick=()=>sortCol(col.id);
-  wrap.addEventListener('dragover',e=>{e.preventDefault();wrap.classList.add('drop-hover');
+  // Приём карточки — на ВСЮ колонку (шапка, пустое место, кнопка «Добавить»), а не только узкая зона списка
+  el.addEventListener('dragover',e=>{e.preventDefault();wrap.classList.add('drop-hover');
     const after=dragAfter(wrap,e.clientY);const d=document.querySelector('.dragging');if(!d)return;
     if(after==null)wrap.appendChild(d);else wrap.insertBefore(d,after);});
-  wrap.addEventListener('dragleave',e=>{if(!wrap.contains(e.relatedTarget))wrap.classList.remove('drop-hover');});
-  wrap.addEventListener('drop',e=>{e.preventDefault();wrap.classList.remove('drop-hover');commitDrop(col.id,wrap);});
+  el.addEventListener('dragleave',e=>{if(!el.contains(e.relatedTarget))wrap.classList.remove('drop-hover');});
+  el.addEventListener('drop',e=>{e.preventDefault();wrap.classList.remove('drop-hover');commitDrop(col.id,wrap);});
   return el;
 }
 
@@ -1346,7 +1351,8 @@ function readDue(){const v=dueDateSel.value;
   if(v==='everyday')return{due:'',repeat:'daily',dueTime:dueTime.value||'09:00'};
   let dp='';if(v==='custom')dp=dueCustom.value;else if(v){const d=presetDate(v);if(d)dp=fmtYMD(d);}
   if(!dp)return{due:'',repeat:'',dueTime:''};
-  return{due:dp+'T'+(dueTime.value||'18:00'),repeat:'',dueTime:''};}
+  // время необязательно: пусто → дедлайн «на дату» (без часа, без пуша в момент дедлайна)
+  return{due:dp+(dueTime.value?('T'+dueTime.value):''),repeat:'',dueTime:''};}
 function setDeadlineLocked(locked){
   dueDateSel.disabled=locked;dueTime.disabled=locked;dueCustom.disabled=locked;
   document.getElementById('postponeField').style.display=locked?'block':'none';
@@ -1396,7 +1402,8 @@ function checkReminders(){
       if(now>=sched&&card._n.day!==dayKey){card._n.day=dayKey;changed=true;notify('🔔 Ежедневно: '+card.title,col.title);}
       return;
     }
-    if(!card.due)return;const t=new Date(card.due).getTime();
+    if(!card.due||!card.due.includes('T'))return; // без времени — точных напоминаний нет
+    const t=new Date(card.due).getTime();
     const preMs=notifPreMin()*60000;
     if(!card._n.pre&&now>=t-preMs&&now<t){card._n.pre=true;changed=true;notify('⏰ Через '+notifPreMin()+' мин: '+card.title,col.title);}
     if(!card._n.at&&now>=t){card._n.at=true;changed=true;notify('⏰ Дедлайн: '+card.title,col.title);}
@@ -2089,23 +2096,34 @@ async function sbApi(path,opts,_retried){
 }
 function myEmail(){return session&&session.user?(session.user.email||'').toLowerCase():'';}
 
-/* --- приглашения: попап при старте, «Да» = accepted:true, «Нет» = удалить свою строку --- */
+/* --- приглашения: пуш + попап («Да» = accepted:true, «Нет» = удалить свою строку) --- */
 let _invites=[];
+function invitesSeen(){try{return new Set(JSON.parse(localStorage.getItem('drive-invites-seen')||'[]'));}catch(e){return new Set();}}
+function saveInvitesSeen(s){try{localStorage.setItem('drive-invites-seen',JSON.stringify([...s]));}catch(e){}}
 async function checkTeamInvites(){
   if(!session)return;
-  try{_invites=await sbApi('team_members?select=team_id,teams(name)&email=eq.'+encodeURIComponent(myEmail())+'&accepted=eq.false');}
+  // role=eq.member — владельцу не показываем приглашение в собственную команду (на старых версиях его строка могла остаться accepted=false)
+  try{_invites=await sbApi('team_members?select=team_id,teams(name)&email=eq.'+encodeURIComponent(myEmail())+'&accepted=eq.false&role=eq.member');}
   catch(e){return;}
-  showNextInvite();
+  const seen=invitesSeen();
+  _invites.forEach(inv=>{ // пуш один раз на приглашение — даже если Taska свёрнута в трей
+    if(seen.has(inv.team_id))return;
+    seen.add(inv.team_id);
+    pushNotify('👥 Приглашение в команду','Тебя добавили в «'+inviteTeamName(inv)+'». Открой Taska, чтобы принять.');
+  });
+  saveInvitesSeen(seen);
+  if(!anyOverlayOpen())showNextInvite(); // не перебиваем открытое окно (например, редактирование задачи)
 }
+function inviteTeamName(inv){return (inv&&inv.teams&&inv.teams.name)||'без названия';}
 function showNextInvite(){
   const ov=document.getElementById('inviteOverlay');
   if(!_invites.length){ov.classList.remove('open');return;}
-  const inv=_invites[0];
-  document.getElementById('inviteText').textContent='Тебя пригласили в команду «'+((inv.teams&&inv.teams.name)||'без названия')+'» — общая доска задач для всех участников. Вступить?';
+  document.getElementById('inviteText').textContent='Тебя пригласили в команду «'+inviteTeamName(_invites[0])+'» — общая доска задач для всех участников. Вступить?';
   ov.classList.add('open');
 }
 async function answerInvite(yes){
   const inv=_invites.shift();
+  const seen=invitesSeen();seen.delete(inv.team_id);saveInvitesSeen(seen); // пригласят снова — пуш придёт снова
   const q='team_members?team_id=eq.'+inv.team_id+'&email=eq.'+encodeURIComponent(myEmail());
   try{
     if(yes){
@@ -2154,7 +2172,8 @@ async function teamWatch(){
   }finally{_teamWatchBusy=false;}
 }
 let _teamWatchTimer=null;
-function startTeamWatch(){clearInterval(_teamWatchTimer);_teamWatchTimer=setInterval(teamWatch,60000);setTimeout(teamWatch,3000);}
+function teamTick(){teamWatch();checkTeamInvites();} // раз в минуту: новые задачи + новые приглашения
+function startTeamWatch(){clearInterval(_teamWatchTimer);_teamWatchTimer=setInterval(teamTick,60000);setTimeout(teamWatch,3000);}
 async function refreshTeamsQuiet(){if(!session)return;try{_teams=await sbApi('teams?select=id,name,owner_id&order=created_at');}catch(e){}updateTeamChip();}
 function updateTeamChip(){
   const chip=document.getElementById('teamChip');if(!chip)return;
@@ -2164,6 +2183,16 @@ function updateTeamChip(){
     chip.style.display='inline-flex';
   }else chip.style.display='none';
 }
+/* «Моя команда» — функция Pro. Проверяем только когда статус ТОЧНО известен как false:
+   при null (не проверили / нет сети) не блокируем, чтобы не запереть оплатившего. */
+function requireProForTeam(){
+  if(!session||isProUser())return true;
+  if(_proStatus===null){checkProStatus();return true;}
+  closeMenus();
+  openProModal('«Моя команда» — функция Pro: общие доски, приглашение коллег и общие задачи для всех участников. 199 ₽/мес · 499 ₽/3 мес · 999 ₽/год.');
+  return false;
+}
+
 async function openTeam(){
   closeMenus();
   document.getElementById('teamOverlay').classList.add('open');
@@ -2274,6 +2303,7 @@ function buildMembersPanel(t,isOwner){
 /* Переключение доски: ''=личная, иначе id команды */
 async function switchBoard(teamId){
   teamId=teamId||'';
+  if(teamId&&!requireProForTeam())return;
   if(teamId===currentTeam)return;
   clearTimeout(saveTimer);_savePending=false;
   if(state)await saveLocalBoard();
@@ -2302,7 +2332,7 @@ async function switchBoard(teamId){
   const t=_teams.find(x=>x.id===teamId);
   toast('Доска переключена',teamId?('Команда: '+((t&&t.name)||'')):'Моя доска','green');
 }
-document.getElementById('teamBtn').onclick=()=>{openTeam();};
+document.getElementById('teamBtn').onclick=()=>{if(!requireProForTeam())return;openTeam();};
 document.getElementById('teamChip').onclick=()=>{openTeam();};
 document.getElementById('teamClose').onclick=()=>document.getElementById('teamOverlay').classList.remove('open');
 document.getElementById('teamOverlay').addEventListener('click',e=>{if(e.target===document.getElementById('teamOverlay'))document.getElementById('teamOverlay').classList.remove('open');});
