@@ -166,7 +166,25 @@
   .banner .sub{font-size:13px;color:var(--muted);margin-top:6px}
   .banner .bactions{display:flex;gap:8px;flex-shrink:0}
 
-  .scroll{flex:1;overflow-y:auto;overflow-x:hidden}
+  .scroll{flex:1;overflow-y:auto;overflow-x:hidden;position:relative}
+
+  /* --- стикеры-заметки --- */
+  .note{position:absolute;width:212px;min-height:124px;border-radius:12px;z-index:20;display:flex;flex-direction:column;
+    color:#2b2a1a;border:1px solid rgba(0,0,0,.08);box-shadow:0 8px 22px rgba(16,20,30,.22);
+    resize:both;overflow:auto;min-width:150px;max-width:640px;max-height:640px} /* resize:both — родной уголок в правом нижнем углу */
+  .note.dragging{opacity:.85;box-shadow:0 16px 36px rgba(16,20,30,.32)}
+  .note-head{height:28px;display:flex;align-items:center;padding:0 6px;cursor:grab;flex-shrink:0}
+  .note.dragging .note-head{cursor:grabbing}
+  .note-head .nspacer{flex:1}
+  .note-head button{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#2b2a1a;opacity:.55}
+  .note-head button:hover{opacity:1;background:rgba(0,0,0,.09)}
+  .note-head svg{width:13px;height:13px}
+  .note textarea{flex:1;border:none;background:transparent;resize:none;outline:none;padding:0 11px 6px;
+    font-family:inherit;font-size:13.5px;line-height:1.45;color:inherit}
+  .note textarea::placeholder{color:rgba(43,42,26,.45)}
+  .note-colors{display:flex;gap:5px;padding:0 10px 9px;opacity:0;transition:opacity .15s}
+  .note:hover .note-colors{opacity:1}
+  .ncolor{width:14px;height:14px;border-radius:50%;border:1.5px solid rgba(0,0,0,.18);cursor:pointer;padding:0;flex-shrink:0}
   .layout{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:18px;padding:18px 20px 28px;align-items:start}
   .left{display:flex;flex-direction:column;gap:16px;min-width:0}
   .board{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
@@ -233,6 +251,9 @@
   .postpone-row{display:flex;gap:8px;flex-wrap:wrap}
   .postpone-row .tbtn{flex:1;min-width:84px;padding:9px 8px}
   .prio-pick{display:flex;gap:8px}
+  .wd-pick{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+  .wd-pick button{flex:1;min-width:44px;padding:9px 4px;border-radius:10px;border:1px solid var(--line);font-size:13px;font-weight:700;color:var(--muted);background:var(--col);text-transform:capitalize}
+  .wd-pick button.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
   .prio-pick button{flex:1;padding:10px;border-radius:10px;border:1px solid var(--line);font-size:13px;font-weight:650;color:var(--muted)}
   .prio-pick button.on[data-p=""]{border-color:var(--muted);color:var(--text);background:var(--col)}
   .prio-pick button.on[data-p="low"]{border-color:var(--p-low);color:var(--p-low);background:rgba(34,176,125,.12)}
@@ -424,6 +445,7 @@
     <span class="team-chip" id="teamChip" style="display:none" title="Текущая доска — командная. Нажми, чтобы переключить."></span>
     <button class="hbtn" id="presetsBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg> Пресеты</button>
     <button class="hbtn" id="teamBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Моя команда</button>
+    <button class="hbtn" id="noteBtn" title="Быстрая заметка на доске"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10l6-6V5a2 2 0 0 0-2-2z"/><path d="M21 15h-4a2 2 0 0 0-2 2v4"/></svg> Добавить стикер</button>
   </div>
   <div class="spacer"></div>
   <div class="search" id="searchWrap">
@@ -518,7 +540,7 @@
         <div class="duerow">
           <select id="fDueDate">
             <option value="">Без дедлайна</option>
-            <option value="everyday" id="optEveryday">Каждый день</option>
+            <option value="everyday" id="optEveryday">Повторяется…</option>
             <option value="today">Сегодня</option>
             <option value="tomorrow">Завтра</option>
             <option value="friday">До конца недели (пятница)</option>
@@ -527,7 +549,19 @@
           <input id="fDueTime" type="time">
         </div>
         <input id="fDueCustom" type="date" min="2020-01-01" max="2040-12-31" style="display:none;margin-top:10px">
-        <div class="hint">Время можно не указывать — тогда это просто срок «на день». Если время задано, уведомления придут автоматически: заранее (интервал меняется в Настройках) и в момент дедлайна. «Каждый день» — для ежедневных задач: напомнит в указанное время каждый день.</div>
+        <div class="hint">Время можно не указывать — тогда это просто срок «на день». Если время задано, уведомления придут автоматически: заранее (интервал меняется в Настройках) и в момент дедлайна.</div>
+      </div>
+      <div class="field" id="repeatField" style="display:none"><label>Как повторять</label>
+        <div class="prio-pick" id="fRepeatType">
+          <button data-r="daily">Каждый день</button><button data-r="weekly">По дням недели</button><button data-r="everyN">Каждые N дней</button>
+        </div>
+        <div class="wd-pick" id="fWeekDays" style="display:none"></div>
+        <div id="fEveryNRow" style="display:none;align-items:center;gap:8px;margin-top:10px">
+          <span style="font-size:13px;color:var(--muted)">Повторять каждые</span>
+          <input id="fEveryN" type="number" min="2" max="60" value="3" style="width:80px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">
+          <span style="font-size:13px;color:var(--muted)">дн. — отсчёт от дня создания задачи</span>
+        </div>
+        <div class="hint">Задача остаётся в разделе «Повторяющиеся задачи», а в назначенный день приходит напоминание в указанное время.</div>
       </div>
       <div class="field" id="postponeField" style="display:none"><label>Отложить дедлайн</label>
         <div class="postpone-row">
@@ -1072,9 +1106,36 @@ function translateAuthError(m){
 
 
 const ROLES=['backlog','inprogress','done','daily','nextweek'];
-const ROLE_TITLE={backlog:'Бэклог',inprogress:'В работе',done:'Готово',daily:'Ежедневные задачи',nextweek:'Задачи на следующую неделю'};
+const ROLE_TITLE={backlog:'Бэклог',inprogress:'В работе',done:'Готово',daily:'Повторяющиеся задачи',nextweek:'Задачи на следующую неделю'};
 const ROLE_COLOR={backlog:'var(--backlog)',inprogress:'var(--inprogress)',done:'var(--done)',daily:'var(--daily)',nextweek:'var(--nextweek)'};
-const TITLE_ROLE={'Бэклог':'backlog','В работе':'inprogress','Готово':'done','Ежедневные задачи':'daily','Задачи на следующую неделю':'nextweek','Сделать':'backlog'};
+const TITLE_ROLE={'Бэклог':'backlog','В работе':'inprogress','Готово':'done','Ежедневные задачи':'daily','Повторяющиеся задачи':'daily','Задачи на следующую неделю':'nextweek','Сделать':'backlog'};
+/* Повторы: repeat='daily' (каждый день, старый формат) | 'weekly' + repeatDays[0..6, getDay] | 'everyN' + repeatEvery */
+const WD_SHORT=['вс','пн','вт','ср','чт','пт','сб'];
+const WD_EVERY={0:'каждое воскресенье',1:'каждый понедельник',2:'каждый вторник',3:'каждую среду',4:'каждый четверг',5:'каждую пятницу',6:'каждую субботу'};
+const WD_ORDER=[1,2,3,4,5,6,0]; // показываем с понедельника
+function plural(n,one,few,many){const m10=n%10,m100=n%100;return m10===1&&m100!==11?one:(m10>=2&&m10<=4&&(m100<10||m100>=20)?few:many);}
+function repeatLabel(card){
+  const t=card.dueTime?(' в '+card.dueTime):'';
+  if(card.repeat==='weekly'){
+    const d=(card.repeatDays||[]).slice().sort((a,b)=>WD_ORDER.indexOf(a)-WD_ORDER.indexOf(b));
+    if(!d.length)return'Повтор не настроен';
+    return (d.length===1?WD_EVERY[d[0]]:'по '+d.map(x=>WD_SHORT[x]).join(', ')).replace(/^./,c=>c.toUpperCase())+t;
+  }
+  if(card.repeat==='everyN'){const n=card.repeatEvery||2;return 'Каждые '+n+' '+plural(n,'день','дня','дней')+t;}
+  return 'Каждый день'+t;
+}
+/* Повторяется ли задача сегодня (одна логика для карточек и напоминаний) */
+function repeatsToday(card,now){
+  const d=now||new Date();
+  if(card.repeat==='weekly')return (card.repeatDays||[]).includes(d.getDay());
+  if(card.repeat==='everyN'){
+    const n=Math.max(2,card.repeatEvery||2);
+    const start=new Date(card.created||Date.now());start.setHours(0,0,0,0);
+    const today=new Date(d);today.setHours(0,0,0,0);
+    return Math.floor((today-start)/864e5)%n===0;
+  }
+  return true; // 'daily'
+}
 const SORTABLE=['backlog','inprogress','done','nextweek'];
 
 let state=null, searchQuery='';
@@ -1082,7 +1143,7 @@ let state=null, searchQuery='';
 function defaultState(){
   const now=Date.now();
   const mk=(role,cards=[])=>({id:uid(),role,title:ROLE_TITLE[role],cards});
-  return{title:'Моя доска',theme:'light',motGifs:[],motIndex:0,presets:[],log:[],archive:[],columns:[
+  return{title:'Моя доска',theme:'light',motGifs:[],motIndex:0,presets:[],log:[],archive:[],notes:[],columns:[
     mk('backlog',[{id:uid(),title:'Идея на потом — кликни, чтобы открыть',desc:'Сюда складывай всё, что когда-нибудь хочешь сделать.',prio:'',due:'',created:now}]),
     mk('inprogress'),mk('done'),
     mk('daily',[{id:uid(),title:'Пример: разобрать почту',desc:'Карточку можно перетащить мышкой в другую колонку.',prio:'med',due:'',created:now}]),
@@ -1105,6 +1166,7 @@ function migrate(s){
   if(!Array.isArray(s.presets))s.presets=[];
   if(!Array.isArray(s.log))s.log=[];
   if(!Array.isArray(s.archive))s.archive=[];
+  if(!Array.isArray(s.notes))s.notes=[];
   return s;
 }
 
@@ -1227,8 +1289,79 @@ function render(){
   sidebarEl.appendChild(makeArchiveWidget());
   const daily=colByRole('daily');if(daily)sidebarEl.appendChild(makeColumn(daily,true));
   const nw=colByRole('nextweek');if(nw)wideEl.appendChild(makeColumn(nw,true,true));
-  updateRingUI();
+  updateRingUI();renderNotes();
 }
+
+/* ========== СТИКЕРЫ-ЗАМЕТКИ (живут в state.notes → на командной доске видны всем участникам) ========== */
+const NOTE_COLORS=['#fff5a5','#ffd3e0','#cfe8ff','#d3f5d0','#ffe0b3'];
+function notesArr(){if(!Array.isArray(state.notes))state.notes=[];return state.notes;}
+function addNote(){
+  const arr=notesArr(),i=arr.length%6;
+  const w=document.querySelector('.scroll').clientWidth||900;
+  // кладём у правого края (там обычно свободнее, чем поверх колонок), каскадом вниз
+  const note={id:uid(),text:'',color:NOTE_COLORS[arr.length%NOTE_COLORS.length],
+    x:Math.max(20,w-238-(i%2)*26),y:20+i*38,created:Date.now()};
+  const first=!arr.length;
+  arr.push(note);save();renderNotes();
+  const ta=document.querySelector('.note[data-id="'+note.id+'"] textarea');if(ta)ta.focus();
+  if(first)toast('Стикер добавлен','Перетащи за верхний край, ✓ — превратить в задачу.','green');
+}
+function renderNotes(){
+  const layer=document.querySelector('.scroll');if(!layer)return;
+  layer.querySelectorAll('.note').forEach(e=>e.remove());
+  notesArr().forEach(n=>layer.appendChild(noteEl(n)));
+}
+function noteEl(note){
+  const el=document.createElement('div');el.className='note';el.dataset.id=note.id;
+  const maxX=Math.max(0,(document.querySelector('.scroll').clientWidth||900)-(note.w||212)-8); // не даём уехать за край окна
+  el.style.left=Math.min(note.x||26,maxX)+'px';el.style.top=(note.y||26)+'px';
+  el.style.background=note.color||NOTE_COLORS[0];
+  if(note.w)el.style.width=note.w+'px';
+  if(note.h)el.style.height=note.h+'px';
+  // размер меняется родным уголком — запоминаем только когда он реально задан пользователем
+  el.addEventListener('mouseup',()=>{
+    const w=parseInt(el.style.width)||0,h=parseInt(el.style.height)||0;
+    if(w&&h&&(w!==note.w||h!==note.h)){note.w=w;note.h=h;save();}
+  });
+  el.innerHTML=`<div class="note-head"><span class="nspacer"></span>
+      <button class="n-task" title="Превратить в задачу"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></button>
+      <button class="n-del" title="Удалить стикер"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <textarea placeholder="Запиши мысль со встречи…" maxlength="1000"></textarea>
+    <div class="note-colors"></div>`;
+  const ta=el.querySelector('textarea');ta.value=note.text||'';
+  ta.addEventListener('input',()=>{note.text=ta.value;save();}); // save() сам с задержкой 300мс
+  const cbox=el.querySelector('.note-colors');
+  NOTE_COLORS.forEach(c=>{const b=document.createElement('button');b.className='ncolor';b.style.background=c;b.title='Цвет стикера';
+    b.onclick=()=>{note.color=c;el.style.background=c;save();};cbox.appendChild(b);});
+  el.querySelector('.n-del').onclick=()=>{
+    if((note.text||'').trim()&&!confirm('Удалить стикер вместе с текстом?'))return;
+    state.notes=notesArr().filter(n=>n.id!==note.id);save();renderNotes();};
+  el.querySelector('.n-task').onclick=()=>noteToTask(note);
+  el.querySelector('.note-head').addEventListener('mousedown',e=>{
+    if(e.target.closest('button'))return;
+    e.preventDefault();
+    const sx=e.clientX,sy=e.clientY,ox=note.x||26,oy=note.y||26;
+    el.classList.add('dragging');
+    const move=ev=>{note.x=Math.max(0,ox+ev.clientX-sx);note.y=Math.max(0,oy+ev.clientY-sy);
+      el.style.left=note.x+'px';el.style.top=note.y+'px';};
+    const up=()=>{document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',up);
+      el.classList.remove('dragging');save();};
+    document.addEventListener('mousemove',move);document.addEventListener('mouseup',up);
+  });
+  return el;
+}
+/* Стикер → задача: первая строка становится названием, остальное — описанием */
+let _noteToTaskId=null;
+function noteToTask(note){
+  const bl=colByRole('backlog');if(!bl)return;
+  const lines=(note.text||'').trim().split('\n');
+  openTask(bl.id,null);
+  document.getElementById('fTitle').value=(lines[0]||'').slice(0,80);
+  document.getElementById('fDesc').value=lines.slice(1).join('\n').trim().slice(0,255);
+  _noteToTaskId=note.id;
+}
+document.getElementById('noteBtn').onclick=addNote;
 
 function matches(card,q){return((card.title||'')+' '+(card.desc||'')).toLowerCase().includes(q);}
 function cardEl(card,colId){
@@ -1237,8 +1370,8 @@ function cardEl(card,colId){
   if(searchQuery){if(matches(card,searchQuery))d.classList.add('hit');else d.classList.add('dim');}
   const ds=dueState(card.due);
   let badge='';
-  if(card.repeat==='daily'&&card.dueTime){
-    badge=`<div class="cfoot"><span class="due daily"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>Каждый день в ${esc(card.dueTime)}</span></div>`;
+  if(card.repeat){
+    badge=`<div class="cfoot"><span class="due daily"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>${esc(repeatLabel(card))}</span></div>`;
   }else if(card.due){
     badge=`<div class="cfoot"><span class="due ${ds==='over'?'over':ds==='soon'?'soon':''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>${fmtDue(card.due)}</span></div>`;
   }
@@ -1315,7 +1448,7 @@ function commitDrop(targetColId,wrap){
 let editing={colId:null,cardId:null};
 const ov=document.getElementById('taskOverlay');
 function openTask(colId,cardId){
-  editing={colId,cardId};closeMenus();
+  editing={colId,cardId};closeMenus();_noteToTaskId=null;
   const card=cardId?colById(colId).cards.find(c=>c.id===cardId):null;
   document.getElementById('optEveryday').style.display=colById(colId).role==='daily'?'':'none';
   document.getElementById('taskModalTitle').textContent=card?'Редактировать задачу':'Новая задача';
@@ -1327,32 +1460,67 @@ function openTask(colId,cardId){
   document.getElementById('fDup').style.display=card?'inline-flex':'none';
   ov.classList.add('open');setTimeout(()=>document.getElementById('fTitle').focus(),50);
 }
-function closeTask(){ov.classList.remove('open');}
+function closeTask(){ov.classList.remove('open');_noteToTaskId=null;}
 function fmtYMD(d){const p=x=>String(x).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;}
 function presetDate(v){const d=new Date();d.setHours(0,0,0,0);
   if(v==='today')return d;if(v==='tomorrow'){d.setDate(d.getDate()+1);return d;}
   if(v==='friday'){const diff=(5-d.getDay()+7)%7;d.setDate(d.getDate()+diff);return d;}return null;}
 const dueDateSel=document.getElementById('fDueDate'),dueTime=document.getElementById('fDueTime'),dueCustom=document.getElementById('fDueCustom');
-function updateDueUI(){dueCustom.style.display=dueDateSel.value==='custom'?'block':'none';
-  if(dueDateSel.value==='everyday'&&!dueTime.value)dueTime.value='09:00';
-  if(dueDateSel.value&&dueDateSel.value!=='custom'&&dueDateSel.value!=='everyday'&&!dueTime.value)dueTime.value='18:00';}
+function updateDueUI(){const v=dueDateSel.value;
+  dueCustom.style.display=v==='custom'?'block':'none';
+  document.getElementById('repeatField').style.display=v==='everyday'?'block':'none';
+  if(v==='everyday'&&!dueTime.value)dueTime.value='09:00';
+  if(v&&v!=='custom'&&v!=='everyday'&&!dueTime.value)dueTime.value='18:00';}
 dueDateSel.addEventListener('change',updateDueUI);
+
+/* --- редактор повторения (каждый день / по дням недели / каждые N дней) --- */
+let repeatType='daily',repeatDaysSel=new Set();
+function buildWeekDays(){
+  const box=document.getElementById('fWeekDays');box.innerHTML='';
+  WD_ORDER.forEach(d=>{const b=document.createElement('button');b.type='button';b.textContent=WD_SHORT[d];
+    if(repeatDaysSel.has(d))b.className='on';
+    b.onclick=()=>{repeatDaysSel.has(d)?repeatDaysSel.delete(d):repeatDaysSel.add(d);buildWeekDays();};
+    box.appendChild(b);});
+}
+function setRepeatType(t){repeatType=t;
+  document.querySelectorAll('#fRepeatType button').forEach(b=>b.classList.toggle('on',b.dataset.r===t));
+  document.getElementById('fWeekDays').style.display=t==='weekly'?'flex':'none';
+  document.getElementById('fEveryNRow').style.display=t==='everyN'?'flex':'none';
+}
+document.querySelectorAll('#fRepeatType button').forEach(b=>b.onclick=()=>setRepeatType(b.dataset.r));
+
 function fillDue(card){
   dueDateSel.value='';dueTime.value='';dueCustom.value='';dueCustom.style.display='none';
-  if(card&&card.repeat==='daily'){dueDateSel.value='everyday';dueTime.value=card.dueTime||'';}
-  else if(card&&card.due){const parts=card.due.split('T');dueTime.value=parts[1]||'';const dp=parts[0];
-    if(dp===fmtYMD(presetDate('today')))dueDateSel.value='today';
-    else if(dp===fmtYMD(presetDate('tomorrow')))dueDateSel.value='tomorrow';
-    else if(dp===fmtYMD(presetDate('friday')))dueDateSel.value='friday';
-    else{dueDateSel.value='custom';dueCustom.value=dp;}}
+  repeatDaysSel=new Set();document.getElementById('fEveryN').value=3;
+  const rep=card&&card.repeat;
+  if(rep){
+    dueDateSel.value='everyday';dueTime.value=card.dueTime||'';
+    setRepeatType(rep==='weekly'||rep==='everyN'?rep:'daily');
+    if(rep==='weekly')(card.repeatDays||[]).forEach(d=>repeatDaysSel.add(d));
+    if(rep==='everyN')document.getElementById('fEveryN').value=card.repeatEvery||3;
+  }else{
+    setRepeatType('daily');
+    if(card&&card.due){const parts=card.due.split('T');dueTime.value=parts[1]||'';const dp=parts[0];
+      if(dp===fmtYMD(presetDate('today')))dueDateSel.value='today';
+      else if(dp===fmtYMD(presetDate('tomorrow')))dueDateSel.value='tomorrow';
+      else if(dp===fmtYMD(presetDate('friday')))dueDateSel.value='friday';
+      else{dueDateSel.value='custom';dueCustom.value=dp;}}
+  }
+  buildWeekDays();
   updateDueUI();
 }
 function readDue(){const v=dueDateSel.value;
-  if(v==='everyday')return{due:'',repeat:'daily',dueTime:dueTime.value||'09:00'};
+  if(v==='everyday'){
+    const t=dueTime.value||'09:00';
+    if(repeatType==='weekly')return{due:'',repeat:'weekly',repeatDays:[...repeatDaysSel].sort((a,b)=>a-b),repeatEvery:undefined,dueTime:t};
+    if(repeatType==='everyN')return{due:'',repeat:'everyN',repeatEvery:Math.max(2,Math.min(60,parseInt(document.getElementById('fEveryN').value)||3)),repeatDays:undefined,dueTime:t};
+    return{due:'',repeat:'daily',repeatDays:undefined,repeatEvery:undefined,dueTime:t};
+  }
   let dp='';if(v==='custom')dp=dueCustom.value;else if(v){const d=presetDate(v);if(d)dp=fmtYMD(d);}
-  if(!dp)return{due:'',repeat:'',dueTime:''};
+  // repeatDays/Every гасим — иначе у бывшей повторяющейся задачи остались бы старые настройки
+  if(!dp)return{due:'',repeat:'',dueTime:'',repeatDays:undefined,repeatEvery:undefined};
   // время необязательно: пусто → дедлайн «на дату» (без часа, без пуша в момент дедлайна)
-  return{due:dp+(dueTime.value?('T'+dueTime.value):''),repeat:'',dueTime:''};}
+  return{due:dp+(dueTime.value?('T'+dueTime.value):''),repeat:'',dueTime:'',repeatDays:undefined,repeatEvery:undefined};}
 function setDeadlineLocked(locked){
   dueDateSel.disabled=locked;dueTime.disabled=locked;dueCustom.disabled=locked;
   document.getElementById('postponeField').style.display=locked?'block':'none';
@@ -1378,10 +1546,12 @@ document.getElementById('fSave').onclick=()=>{
     if(!(y>=2020&&y<=2040)){toast('Неверная дата','Дедлайн должен быть не позже 2040 года.');dueCustom.focus();return;}
   }
   const data={title,desc:document.getElementById('fDesc').value.trim().slice(0,255),prio:curPrio(),...readDue()};
+  if(data.repeat==='weekly'&&!(data.repeatDays||[]).length){toast('Выбери дни','Отметь хотя бы один день недели для повтора.');return;}
   const col=colById(editing.colId);
   if(editing.cardId)Object.assign(col.cards.find(c=>c.id===editing.cardId),data);
   else{if(!checkFreeLimit())return;col.cards.push({id:uid(),...data,created:Date.now()});}
   if(col.role==='done'){col.cards.forEach(c=>{if(!c.completedAt)c.completedAt=Date.now();});bumpStreak();}
+  if(_noteToTaskId){state.notes=notesArr().filter(n=>n.id!==_noteToTaskId);toast('Стикер стал задачей','Заметка переехала в «Бэклог».','green');}
   save();render();closeTask();
 };
 document.getElementById('fDelete').onclick=()=>{if(!confirm('Удалить эту задачу?'))return;
@@ -1395,11 +1565,11 @@ function checkReminders(){
   const now=Date.now();let changed=false;
   state.columns.forEach(col=>{if(col.role==='done')return;col.cards.forEach(card=>{
     card._n=card._n||{};
-    if(card.repeat==='daily'&&card.dueTime){
+    if(card.repeat&&card.dueTime){
       const d=new Date();const hm=card.dueTime.split(':');
       const sched=new Date(d.getFullYear(),d.getMonth(),d.getDate(),+hm[0],+hm[1],0).getTime();
       const dayKey=d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate();
-      if(now>=sched&&card._n.day!==dayKey){card._n.day=dayKey;changed=true;notify('🔔 Ежедневно: '+card.title,col.title);}
+      if(repeatsToday(card,d)&&now>=sched&&card._n.day!==dayKey){card._n.day=dayKey;changed=true;notify('🔔 '+card.title,col.title);}
       return;
     }
     if(!card.due||!card.due.includes('T'))return; // без времени — точных напоминаний нет
@@ -1533,7 +1703,7 @@ function exportCSVFallback(){
   const RU={high:'Высокий',med:'Средний',low:'Низкий','':'—'};
   const rows=[['Колонка','Задача','Приоритет','Дедлайн','Создана']];
   state.columns.forEach(c=>c.cards.forEach(card=>rows.push([c.title,card.title,RU[card.prio]||'—',
-    card.repeat==='daily'?('каждый день '+(card.dueTime||'')):(card.due||''),
+    card.repeat?repeatLabel(card):(card.due||''),
     card.created?new Date(card.created).toLocaleString():''])));
   rows.push([],['История статусов'],['Задача','Из','В','Дата','Время']);
   (state.log||[]).forEach(e=>{const d=new Date(e.ts);rows.push([e.title,e.from,e.to,d.toLocaleDateString(),d.toLocaleTimeString()]);});

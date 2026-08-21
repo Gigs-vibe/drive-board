@@ -22,6 +22,7 @@ import os
 import sys
 import json
 import time
+import datetime
 import threading
 import urllib.request
 import urllib.parse
@@ -55,7 +56,7 @@ window = None  # ссылка на окно pywebview (нужна для диа�
 
 # === Версия и обновления через GitHub ===
 # При каждом новом релизе увеличивай VERSION и ставь такой же тег у релиза (например v1.1).
-VERSION = "1.7.6"
+VERSION = "1.8.0"
 GITHUB_REPO = "Gigs-vibe/drive-board"
 SINGLE_INSTANCE_PORT = 27315  # локальный порт для обнаружения запущенного экземпляра
 
@@ -434,6 +435,25 @@ def check_update(manual=False):
             show_toast("Обновления", "Не удалось проверить — нет интернета или репозиторий недоступен.")
 
 
+def repeats_today(card, lt, now):
+    """Подходит ли сегодняшний день под правило повтора (зеркало repeatsToday в board.html)."""
+    rep = card.get("repeat")
+    if rep == "weekly":
+        js_day = (lt.tm_wday + 1) % 7  # Python: 0=понедельник; доска хранит JS getDay(): 0=воскресенье
+        return js_day in (card.get("repeatDays") or [])
+    if rep == "everyN":
+        try:
+            n = max(2, int(card.get("repeatEvery") or 2))
+            created = card.get("created")
+            if not created:
+                return True
+            start = datetime.date.fromtimestamp(created / 1000)
+            return (datetime.date.fromtimestamp(now) - start).days % n == 0
+        except Exception:
+            return True
+    return True  # 'daily' и старые карточки
+
+
 def reminder_loop(stop_event: threading.Event):
     """Каждые 15 секунд читаем доску и шлём пуши: заранее (настройка notifPre) и в дедлайн."""
     notified = load_notified()
@@ -458,8 +478,8 @@ def reminder_loop(stop_event: threading.Event):
                     cid = card.get("id")
                     title = card.get("title", "Задача")
 
-                    # повтор «каждый день» в заданное время
-                    if card.get("repeat") == "daily" and card.get("dueTime"):
+                    # повторяющаяся задача (каждый день / по дням недели / каждые N дней)
+                    if card.get("repeat") and card.get("dueTime"):
                         try:
                             hh, mm = card["dueTime"].split(":")
                             lt = time.localtime(now)
@@ -467,10 +487,10 @@ def reminder_loop(stop_event: threading.Event):
                                                  int(hh), int(mm), 0, 0, 0, -1))
                         except Exception:
                             sched = None
-                        if sched is not None:
+                        if sched is not None and repeats_today(card, lt, now):
                             day_key = f"{cid}|daily|{lt.tm_year}-{lt.tm_mon}-{lt.tm_mday}"
                             if now >= sched and day_key not in notified:
-                                show_toast("🔔 Ежедневно: " + title, "Время задачи — " + col_title)
+                                show_toast("🔔 " + title, "Повторяющаяся задача — " + col_title)
                                 notified.add(day_key); changed = True
                         continue
 
