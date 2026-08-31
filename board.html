@@ -2353,9 +2353,15 @@ function updateTeamChip(){
     chip.style.display='inline-flex';
   }else chip.style.display='none';
 }
+/* ЕДИНЫЙ ВЫКЛЮЧАТЕЛЬ Pro-ограничений. false = все функции бесплатны для всех
+   (решение Павла 21.07.2026: пока не запущена оплата ЮKassa, никого не ограничиваем).
+   Включать ОДНОВРЕМЕННО с приёмом платежей — тогда заработают и лимит задач, и Pro-команды. */
+const PRO_LIMITS_ON=false;
+
 /* «Моя команда» — функция Pro. Проверяем только когда статус ТОЧНО известен как false:
    при null (не проверили / нет сети) не блокируем, чтобы не запереть оплатившего. */
 function requireProForTeam(){
+  if(!PRO_LIMITS_ON)return true;
   if(!session||isProUser())return true;
   if(_proStatus===null){checkProStatus();return true;}
   closeMenus();
@@ -2546,6 +2552,7 @@ document.getElementById('proUpgradeBtn').onclick=()=>{
   else{closeProModal();showAuth();}
 };
 function checkFreeLimit(){
+  if(!PRO_LIMITS_ON)return true;
   if(isProUser())return true;
   const total=state.columns.reduce((s,c)=>s+c.cards.length,0);
   if(total>=FREE_LIMIT){
