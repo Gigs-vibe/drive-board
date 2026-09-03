@@ -56,8 +56,10 @@ window = None  # ссылка на окно pywebview (нужна для диа�
 
 # === Версия и обновления через GitHub ===
 # При каждом новом релизе увеличивай VERSION и ставь такой же тег у релиза (например v1.1).
-VERSION = "1.8.1"
+VERSION = "1.8.2"
 GITHUB_REPO = "Gigs-vibe/drive-board"
+# Прямая ссылка на установщик последнего релиза — запасной путь, когда GitHub API недоступен
+DIRECT_INSTALLER_URL = f"https://github.com/{GITHUB_REPO}/releases/latest/download/TaskaSetup.exe"
 SINGLE_INSTANCE_PORT = 27315  # локальный порт для обнаружения запущенного экземпляра
 
 _pending_update = {"version": None, "download_url": None}
@@ -218,14 +220,22 @@ class Api:
         os.makedirs(staging, exist_ok=True)
         installer = os.path.join(staging, "TaskaSetup.exe")
 
-        try:
-            def on_progress(count, block, total):
-                if total > 0 and window:
-                    pct = min(int(count * block * 100 / total), 99)
-                    window.evaluate_js(f"updateDownloadProgress({pct})")
-            urllib.request.urlretrieve(download_url, installer, reporthook=on_progress)
-        except Exception as ex:
-            return {"ok": False, "error": f"Ошибка загрузки: {ex}"}
+        def on_progress(got, total):
+            if total > 0 and window:
+                window.evaluate_js(f"updateDownloadProgress({min(int(got * 100 / total), 99)})")
+
+        # качаем по ссылке из релиза; если она не отдалась — пробуем прямую ссылку на последний релиз
+        err = None
+        for url in [u for u in (download_url, DIRECT_INSTALLER_URL) if u]:
+            try:
+                download_file(url, installer, on_progress)
+                err = None
+                break
+            except Exception as ex:
+                err = ex
+        if err is not None:
+            webbrowser.open(DIRECT_INSTALLER_URL)  # последний шанс: пусть скачает браузер
+            return {"ok": False, "error": f"Не удалось скачать ({err}). Открыл страницу загрузки в браузере."}
 
         # Проверяем что скачали настоящий установщик, а не HTML-страницу
         try:
@@ -355,17 +365,64 @@ def save_notified(s: set):
         pass
 
 
-def show_toast(title: str, msg: str):
+def show_toast(title: str, msg: str, action_label: str = "", action_url: str = ""):
     if not HAVE_NOTIFY:
         return
     try:
         icon = resource_path("icon.png")
         t = Notification(app_id=APP_NAME, title=title, msg=msg,
                          icon=icon if os.path.exists(icon) else "")
+        if action_label and action_url:  # кнопка прямо в уведомлении Windows
+            try:
+                t.add_actions(label=action_label, launch=action_url)
+            except Exception:
+                pass
         t.set_audio(audio.Default, loop=False)
         t.show()
     except Exception:
         pass
+
+
+# Сеть: сперва как настроено в системе, при неудаче — напрямую в обход прокси.
+# У части пользователей включён SOCKS-прокси (Clash/V2Ray), через который GitHub не отвечает,
+# и обновления до них не доезжали вообще (симптом: «Не удалось проверить — нет интернета»).
+def _openers():
+    return (urllib.request.build_opener(),
+            urllib.request.build_opener(urllib.request.ProxyHandler({})))
+
+
+def fetch_url(url: str, timeout: int = 15) -> bytes:
+    last = None
+    for opener in _openers():
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Taska-Board"})
+            with opener.open(req, timeout=timeout) as r:
+                return r.read()
+        except Exception as ex:
+            last = ex
+    raise last
+
+
+def download_file(url: str, dest: str, on_progress=None, timeout: int = 60):
+    last = None
+    for opener in _openers():
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Taska-Board"})
+            with opener.open(req, timeout=timeout) as r, open(dest, "wb") as f:
+                total = int(r.headers.get("Content-Length") or 0)
+                got = 0
+                while True:
+                    chunk = r.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    got += len(chunk)
+                    if on_progress and total:
+                        on_progress(got, total)
+            return
+        except Exception as ex:
+            last = ex
+    raise last
 
 
 # ----------------------------------------------------------------------------
@@ -413,9 +470,7 @@ def check_update(manual=False):
         return
     try:
         api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-        req = urllib.request.Request(api_url, headers={"User-Agent": "Taska-Board"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.load(r)
+        data = json.loads(fetch_url(api_url, timeout=12).decode("utf-8", "replace"))
         latest = data.get("tag_name", "")
         page = data.get("html_url", f"https://github.com/{GITHUB_REPO}/releases/latest")
         download_url = get_asset_url(data) or page
@@ -432,7 +487,10 @@ def check_update(manual=False):
                 window.evaluate_js(f"showToast('Обновлений нет', 'У тебя последняя версия ({VERSION}).', '')")
     except Exception:
         if manual:
-            show_toast("Обновления", "Не удалось проверить — нет интернета или репозиторий недоступен.")
+            # даём пользователю выход: кнопка в уведомлении качает установщик из браузера
+            show_toast("Обновления",
+                       "Не удалось проверить — нет интернета или GitHub недоступен. Можно скачать установщик вручную.",
+                       "Скачать вручную", DIRECT_INSTALLER_URL)
 
 
 def repeats_today(card, lt, now):
@@ -603,8 +661,23 @@ def start_single_instance_server(stop_event: threading.Event):
 # ----------------------------------------------------------------------------
 # Запуск
 # ----------------------------------------------------------------------------
+def check_ui_build():
+    """Страховка для разработки: напоминает поднять UI_BUILD в board.html вместе с VERSION."""
+    try:
+        head = open(resource_path("board.html"), encoding="utf-8").read(200000)
+        i = head.find("UI_BUILD='")
+        ui = head[i + 10:head.find("'", i + 10)] if i >= 0 else "?"
+        if ui != VERSION:
+            print(f"[!] UI_BUILD в board.html = {ui}, а VERSION = {VERSION} — поправь перед релизом")
+    except Exception:
+        pass
+
+
 def main():
     global window
+
+    if not getattr(sys, "frozen", False):
+        check_ui_build()
 
     # Если уже запущен — показываем существующее окно и выходим
     if try_bring_to_front():
@@ -613,9 +686,11 @@ def main():
     stop_event = threading.Event()
     api = Api()
 
+    # ?v=VERSION — у каждой версии свой адрес страницы, поэтому WebView2 не может
+    # подсунуть старый board.html из кэша (симптом: новая версия, старый интерфейс)
     window = webview.create_window(
         APP_NAME,
-        resource_path("board.html"),
+        resource_path("board.html") + f"?v={VERSION}",
         js_api=api,
         width=1280, height=820,
         min_size=(720, 520),

@@ -875,6 +875,7 @@ const Store={
     try{localStorage.setItem(k,v);}catch(e){}
   }
 };
+const UI_BUILD='1.8.2'; // версия интерфейса — держим равной VERSION в app.py; расхождение видно в Настройках
 const KEY='kanban-state-v2';
 const uid=()=>Math.random().toString(36).slice(2,9);
 
@@ -2590,7 +2591,15 @@ document.getElementById('obSkip').onclick=closeOnboarding;
 /* Версия — отдельно от whenReady: на медленных ПК pywebviewready приходит позже 600мс,
    и версия оставалась захардкоженной. Пробуем сразу и ещё раз по событию. */
 async function setVersionLine(){
-  try{const v=await window.pywebview.api.get_version();const el=document.getElementById('sVersionLine');if(el)el.textContent='Версия '+v;}catch(e){}
+  try{
+    const v=await window.pywebview.api.get_version();
+    const el=document.getElementById('sVersionLine');if(!el)return;
+    if(v===UI_BUILD){el.textContent='Версия '+v;el.style.color='';}
+    else{ // интерфейс не от этой версии (старый файл или кэш) — видно сразу, без раскопок
+      el.textContent='Версия '+v+' · интерфейс '+UI_BUILD+' — перезапусти приложение';
+      el.style.color='#ef4444';
+    }
+  }catch(e){}
 }
 if(window.pywebview&&window.pywebview.api)setVersionLine();
 window.addEventListener('pywebviewready',setVersionLine);
