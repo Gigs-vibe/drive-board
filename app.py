@@ -22,6 +22,7 @@ import os
 import sys
 import json
 import time
+import shutil
 import datetime
 import threading
 import urllib.request
@@ -56,7 +57,7 @@ window = None  # ссылка на окно pywebview (нужна для диа�
 
 # === Версия и обновления через GitHub ===
 # При каждом новом релизе увеличивай VERSION и ставь такой же тег у релиза (например v1.1).
-VERSION = "1.8.2"
+VERSION = "1.8.3"
 GITHUB_REPO = "Gigs-vibe/drive-board"
 # Прямая ссылка на установщик последнего релиза — запасной путь, когда GitHub API недоступен
 DIRECT_INSTALLER_URL = f"https://github.com/{GITHUB_REPO}/releases/latest/download/TaskaSetup.exe"
@@ -95,6 +96,30 @@ NOTIFIED_FILE = os.path.join(data_dir(), "drive-notified.json")  # что уже
 # ----------------------------------------------------------------------------
 # Мост JS <-> Python: сохранение и загрузка доски
 # ----------------------------------------------------------------------------
+LOAD_ERROR = "__TASKA_LOAD_ERROR__"  # тот же признак читает board.html
+
+
+def board_is_whole(text):
+    """Целая ли доска (а не обрывок записи и не мусор)."""
+    try:
+        d = json.loads(text)
+        return isinstance(d, dict) and isinstance(d.get("columns"), list)
+    except Exception:
+        return False
+
+
+def read_board_file(path):
+    """'' — файла нет; None — есть, но не читается или повреждён; иначе текст доски."""
+    if not os.path.exists(path):
+        return ""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except Exception:
+        return None
+    return text if board_is_whole(text) else None
+
+
 class Api:
     def get_version(self):
         return VERSION
@@ -107,18 +132,45 @@ class Api:
             pass
 
     def load(self):
-        try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return f.read()
-        except FileNotFoundError:
-            return ""
-        except Exception:
-            return ""
+        """Доска целиком. '' — файла ещё нет (новый пользователь),
+        LOAD_ERROR — файл есть, но прочитать не вышло (интерфейс тогда НЕ станет его затирать)."""
+        main = read_board_file(DATA_FILE)
+        if main:
+            return main
+        backup = read_board_file(DATA_FILE + ".bak")
+        if backup:
+            return backup  # основной файл занят/битый — поднимаем последнюю удачную копию
+        if main == "" and backup == "":
+            return ""      # доски действительно нет
+        return LOAD_ERROR
 
     def save(self, data):
+        """Атомарная запись: сначала во временный файл, потом подмена. Прошлая версия — в .bak."""
         try:
-            with open(DATA_FILE, "w", encoding="utf-8") as f:
+            if not isinstance(data, str) or not board_is_whole(data):
+                return False  # обрывок или мусор на диск не пишем
+            tmp = DATA_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
                 f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            if read_board_file(DATA_FILE):
+                try:
+                    shutil.copy2(DATA_FILE, DATA_FILE + ".bak")  # копируем, а не двигаем:
+                except Exception:                                 # доска не должна исчезать ни на миг
+                    pass
+            os.replace(tmp, DATA_FILE)
+            return True
+        except Exception:
+            return False
+
+    def archive_board(self, tag):
+        """Откладывает текущую доску в отдельный файл — например, при входе под другим аккаунтом."""
+        try:
+            if not read_board_file(DATA_FILE):
+                return False
+            safe = "".join(ch for ch in str(tag) if ch.isalnum() or ch in "-_")[:40] or "prev"
+            shutil.copy2(DATA_FILE, os.path.join(data_dir(), f"drive-board-{safe}.json"))
             return True
         except Exception:
             return False
@@ -126,7 +178,8 @@ class Api:
     def http_request(self, url, method="GET", headers=None, body=None):
         """Запасной сетевой путь для board.html: запрос напрямую через Python,
         в обход системного прокси (fetch из WebView2 не проходит через SOCKS-прокси)."""
-        if not url.startswith(SUPABASE_URL):
+        # строго наш домен: без "/" на конце сюда прошёл бы supabase.co.чужой-домен.tld
+        if not (url == SUPABASE_URL or url.startswith(SUPABASE_URL + "/")):
             return {"ok": False, "status": 0, "error": "URL не разрешён"}
         try:
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # соединение без прокси
@@ -357,10 +410,27 @@ def load_notified() -> set:
         return set()
 
 
+def prune_notified(keys, days: int = 30) -> set:
+    """Отметки старше 30 дней выбрасываем — иначе файл растёт вечно и читается каждые 15 секунд."""
+    edge = datetime.date.today() - datetime.timedelta(days=days)
+    out = set()
+    for k in keys:
+        day = None
+        for part in str(k).split("|")[1:]:
+            try:
+                day = datetime.date.fromisoformat(part[:10])
+                break
+            except Exception:
+                continue
+        if day is None or day >= edge:
+            out.add(k)
+    return out
+
+
 def save_notified(s: set):
     try:
         with open(NOTIFIED_FILE, "w", encoding="utf-8") as f:
-            json.dump(list(s), f)
+            json.dump(list(prune_notified(s)), f)
     except Exception:
         pass
 
@@ -479,8 +549,8 @@ def check_update(manual=False):
             _pending_update["download_url"] = download_url
             show_update_toast(latest, page)
             if window:
-                safe_url = download_url.replace("\\", "\\\\").replace("'", "\\'")
-                window.evaluate_js(f"showUpdateBanner('{latest}', '{safe_url}')")
+                esc = lambda s: str(s).replace("\\", "\\\\").replace("'", "\\'")
+                window.evaluate_js(f"showUpdateBanner('{esc(latest)}', '{esc(download_url)}')")
         elif manual:
             show_toast("Обновлений нет", f"У тебя последняя версия ({VERSION}).")
             if window:
@@ -497,8 +567,11 @@ def repeats_today(card, lt, now):
     """Подходит ли сегодняшний день под правило повтора (зеркало repeatsToday в board.html)."""
     rep = card.get("repeat")
     if rep == "weekly":
+        days = card.get("repeatDays")
+        if not isinstance(days, (list, tuple)):
+            return False  # битые данные (например, строка) — молчим по этой карточке, а не роняем весь цикл
         js_day = (lt.tm_wday + 1) % 7  # Python: 0=понедельник; доска хранит JS getDay(): 0=воскресенье
-        return js_day in (card.get("repeatDays") or [])
+        return js_day in [d for d in days if isinstance(d, int)]
     if rep == "everyN":
         try:
             n = max(2, int(card.get("repeatEvery") or 2))
@@ -546,7 +619,7 @@ def reminder_loop(stop_event: threading.Event):
                         except Exception:
                             sched = None
                         if sched is not None and repeats_today(card, lt, now):
-                            day_key = f"{cid}|daily|{lt.tm_year}-{lt.tm_mon}-{lt.tm_mday}"
+                            day_key = f"{cid}|daily|{time.strftime('%Y-%m-%d', lt)}"  # ISO — чтобы старые отметки чистились
                             if now >= sched and day_key not in notified:
                                 show_toast("🔔 " + title, "Повторяющаяся задача — " + col_title)
                                 notified.add(day_key); changed = True
@@ -722,7 +795,6 @@ def main():
     # HTTP-кэш чистим при каждом старте: WebView2 кэшировал board.html со внутреннего
     # сервера (порт фиксированный) и после обновления показывал СТАРЫЙ интерфейс.
     # Папки Local Storage не трогаем — там сессия и настройки.
-    import shutil
     for _c in ("Cache", "Code Cache"):
         shutil.rmtree(os.path.join(data_dir(), "EBWebView", "Default", _c), ignore_errors=True)
     webview.start(storage_path=data_dir(), private_mode=False, gui="edgechromium")

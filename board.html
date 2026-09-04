@@ -862,20 +862,37 @@
 <div id="toasts"></div>
 
 <script>
-/* ---------- storage ---------- */
+/* ---------- storage ----------
+   Мост к Python на медленном ПК поднимается позже интерфейса. Если не дождаться,
+   прочитаем пустоту из localStorage и запишем демо-доску поверх настоящей — поэтому ждём. */
+const PYWV_READY=new Promise(res=>{
+  if(window.pywebview&&window.pywebview.api)return res(true);
+  let done=false,waited=0;const go=v=>{if(!done){done=true;res(v);}};
+  window.addEventListener('pywebviewready',()=>go(true));
+  const tick=setInterval(()=>{
+    waited+=100;
+    if(window.pywebview&&window.pywebview.api){clearInterval(tick);go(true);}          // мост поднялся
+    else if(waited>=800&&!window.pywebview){clearInterval(tick);go(false);}            // обычный браузер
+    else if(waited>=6000){clearInterval(tick);go(false);}                              // очень медленный ПК
+  },100);
+});
+const LOAD_ERROR='__TASKA_LOAD_ERROR__'; // тот же признак отдаёт app.py
+let boardReadOnly=false;                  // доску прочитать не смогли — на диск ничего не пишем
 const Store={
   async get(k){
-    if(window.pywebview&&window.pywebview.api&&window.pywebview.api.load){try{const r=await window.pywebview.api.load();return r||null;}catch(e){return null;}}
+    await PYWV_READY;
+    if(window.pywebview&&window.pywebview.api&&window.pywebview.api.load){try{const r=await window.pywebview.api.load();return r||null;}catch(e){return LOAD_ERROR;}}
     if(window.storage){try{const r=await window.storage.get(k);return r?r.value:null;}catch(e){return null;}}
     try{return localStorage.getItem(k);}catch(e){return null;}
   },
   async set(k,v){
+    await PYWV_READY;
     if(window.pywebview&&window.pywebview.api&&window.pywebview.api.save){try{await window.pywebview.api.save(v);}catch(e){}return;}
     if(window.storage){try{await window.storage.set(k,v);}catch(e){}return;}
     try{localStorage.setItem(k,v);}catch(e){}
   }
 };
-const UI_BUILD='1.8.2'; // версия интерфейса — держим равной VERSION в app.py; расхождение видно в Настройках
+const UI_BUILD='1.8.3'; // версия интерфейса — держим равной VERSION в app.py; расхождение видно в Настройках
 const KEY='kanban-state-v2';
 const uid=()=>Math.random().toString(36).slice(2,9);
 
@@ -906,8 +923,9 @@ let _refreshPromise=null;
 async function refreshToken(){
   if(_refreshPromise)return _refreshPromise; // защита от гонки: параллельные вызовы ждут один запрос
   _refreshPromise=(async()=>{
-    if(!session||!session.refresh_token)throw new Error('no session');
     try{
+      if(!session||!session.refresh_token)throw new Error('no session'); // внутри try, иначе finally
+                                                                        // не сработает и переменная залипнет
       const d=await authReq('token?grant_type=refresh_token',{refresh_token:session.refresh_token});
       if(!setSessionFrom(d))throw new Error('refresh failed');
     }catch(e){
@@ -921,17 +939,22 @@ async function refreshToken(){
   })();
   return _refreshPromise;
 }
-function signOut(){if(session&&session.access_token){try{fetch(SB_URL+'/auth/v1/logout?scope=local',{method:'POST',headers:{'apikey':SB_ANON,'Authorization':'Bearer '+session.access_token}});}catch(e){}}saveSession(null);}
+function signOut(){if(session&&session.access_token){try{fetchWithTimeout(SB_URL+'/auth/v1/logout?scope=local',{method:'POST',headers:{'apikey':SB_ANON,'Authorization':'Bearer '+session.access_token}}).catch(()=>{});}catch(e){}}saveSession(null);}
 
 async function cloudHeaders(){
   if(session&&session.expires_at&&Date.now()>session.expires_at-60000){try{await refreshToken();}catch(e){}}
   return {'apikey':SB_ANON,'Authorization':'Bearer '+(session?session.access_token:''),'Content-Type':'application/json'};
 }
 function fetchWithTimeout(url,opts,ms=15000){
+  const method=((opts&&opts.method)||'GET').toUpperCase();
+  const timedOut={v:false};
   return Promise.race([
     fetch(url,opts),
-    new Promise((_,rej)=>setTimeout(()=>rej(new Error('Timeout')),ms))
+    new Promise((_,rej)=>setTimeout(()=>{timedOut.v=true;rej(new Error('Timeout'));},ms))
   ]).catch(async e=>{
+    // Отменить запрос мы не можем (AbortController тут не работает), поэтому повторяем ТОЛЬКО чтения:
+    // повтор POST/PATCH/DELETE после таймаута создал бы вторую команду или ложный конфликт синка.
+    if(timedOut.v&&method!=='GET')throw e;
     // fetch не прошёл (SOCKS-прокси/сеть) — пробуем через Python в обход системного прокси
     if(window.pywebview&&window.pywebview.api&&window.pywebview.api.http_request){
       const r=await window.pywebview.api.http_request(url,(opts&&opts.method)||'GET',(opts&&opts.headers)||{},(opts&&opts.body)||null).catch(()=>null);
@@ -969,9 +992,14 @@ function emptyState(){const s=defaultState();s.columns.forEach(c=>c.cards=[]);re
    командные — localStorage. ponytail: фоновые напоминания из трея работают только для личной доски. */
 async function loadLocalBoard(){
   if(currentTeam){try{const s=localStorage.getItem(KEY+sfx());return s?migrate(JSON.parse(s)):emptyState();}catch(e){return emptyState();}}
-  const local=await Store.get(KEY);return local?migrate(JSON.parse(local)):defaultState();
+  const local=await Store.get(KEY);
+  if(local===LOAD_ERROR){boardReadOnly=true;return defaultState();}   // файл занят/повреждён — не затираем
+  if(!local)return defaultState();
+  try{return migrate(JSON.parse(local));}
+  catch(e){boardReadOnly=true;return defaultState();}
 }
 async function saveLocalBoard(){
+  if(boardReadOnly&&!currentTeam)return; // прочитать доску не удалось — записывать поверх нельзя
   if(currentTeam){
     try{localStorage.setItem(KEY+sfx(),JSON.stringify(state));}catch(e){}
     // свои карточки сразу в «увиденные» — teamWatch не должен пушить о них
@@ -1031,6 +1059,7 @@ function anyOverlayOpen(){
 }
 
 async function adoptCloud(cloud){ // принять облачную доску как свою
+  boardReadOnly=false; // из облака пришла целая доска — снова можно писать на диск
   state=migrate(cloud.data);
   await saveLocalBoard();
   if(!currentTeam&&cloud.data._profile){
@@ -1044,16 +1073,18 @@ async function adoptCloud(cloud){ // принять облачную доску 
 
 async function pushNow(){ // отправить локальную доску; при конфликте побеждает облако
   if(!session)return;
+  const bk=sfx(); // доска, которую отправляем: за время запроса пользователь мог переключиться на другую
   setSyncStatus('sync');
   try{
     await cloudPush(boardPayload());
-    setDirty(false);cloudReady=true;
+    if(bk===sfx())setDirty(false);
+    cloudReady=true;
     setSyncStatus('ok');
   }catch(e){
     if(e&&e.conflict){
       try{
         const cloud=await cloudPull();
-        if(cloud&&isValidBoard(cloud.data)){
+        if(cloud&&isValidBoard(cloud.data)&&bk===sfx()){
           setDirty(false);cloudReady=true;
           await adoptCloud(cloud);
           setSyncStatus('ok');
@@ -1128,7 +1159,7 @@ function repeatLabel(card){
 /* Повторяется ли задача сегодня (одна логика для карточек и напоминаний) */
 function repeatsToday(card,now){
   const d=now||new Date();
-  if(card.repeat==='weekly')return (card.repeatDays||[]).includes(d.getDay());
+  if(card.repeat==='weekly')return Array.isArray(card.repeatDays)&&card.repeatDays.includes(d.getDay());
   if(card.repeat==='everyN'){
     const n=Math.max(2,card.repeatEvery||2);
     const start=new Date(card.created||Date.now());start.setHours(0,0,0,0);
@@ -1143,7 +1174,7 @@ let state=null, searchQuery='';
 
 function defaultState(){
   const now=Date.now();
-  const mk=(role,cards=[])=>({id:uid(),role,title:ROLE_TITLE[role],cards});
+  const mk=(role,cards=[])=>({id:role,role,title:ROLE_TITLE[role],cards});
   return{title:'Моя доска',theme:'light',motGifs:[],motIndex:0,presets:[],log:[],archive:[],notes:[],columns:[
     mk('backlog',[{id:uid(),title:'Идея на потом — кликни, чтобы открыть',desc:'Сюда складывай всё, что когда-нибудь хочешь сделать.',prio:'',due:'',created:now}]),
     mk('inprogress'),mk('done'),
@@ -1160,7 +1191,9 @@ function migrate(s){
     let role=c.role||TITLE_ROLE[c.title]||'backlog';if(!buckets[role])role='backlog';
     (c.cards||[]).forEach(card=>{delete card.notified;if(card.created==null)card.created=now;buckets[role].push(card);});
   });
-  s.columns=ROLES.map(role=>({id:uid(),role,title:ROLE_TITLE[role],cards:buckets[role]}));
+  // id колонки = её роль: постоянный на всех устройствах, поэтому открытая карточка не «теряет»
+  // свою колонку после того, как доска приехала из облака
+  s.columns=ROLES.map(role=>({id:role,role,title:ROLE_TITLE[role],cards:buckets[role]}));
   // медиа: старые строки -> объекты
   s.motGifs=(s.motGifs||[]).map(m=>typeof m==='string'?{type:'image',src:m}:m);
   if(s.motIndex==null)s.motIndex=0;if(!s.theme)s.theme='light';if(!s.title)s.title='Моя доска';
@@ -1172,7 +1205,14 @@ function migrate(s){
 }
 
 let saveTimer=null,lastSyncErrToast=0,_savePending=false;
-function save(){setDirty(true);_savePending=true;clearTimeout(saveTimer);saveTimer=setTimeout(()=>{_savePending=false;saveLocalBoard();if(session)pushNow();},300);}
+let _roToast=0;
+function save(){
+  if(boardReadOnly&&!currentTeam){ // не даём затереть непрочитанную доску ни на диске, ни в облаке
+    const n=Date.now();
+    if(n-_roToast>60000){_roToast=n;toast('Изменения не сохраняются','Не удалось прочитать файл доски. Перезапусти приложение — данные на диске не тронуты.');}
+    return;
+  }
+  setDirty(true);_savePending=true;clearTimeout(saveTimer);saveTimer=setTimeout(()=>{_savePending=false;saveLocalBoard();if(session)pushNow();},300);}
 function pushProfileNow(){if(session){setDirty(true);pushNow();}}
 function colByRole(r){return state.columns.find(c=>c.role===r);}
 function colById(id){return state.columns.find(c=>c.id===id);}
@@ -1217,10 +1257,12 @@ document.getElementById('motShuffle').onclick=()=>{renderMotivation();save();};
 /* ---------- render ---------- */
 const boardEl=document.getElementById('board'),sidebarEl=document.getElementById('sidebar'),wideEl=document.getElementById('wide');
 function dueState(due){if(!due)return null;
-  const t=new Date(due.includes('T')?due:due+'T23:59').getTime(),n=Date.now(); // без времени — срок до конца дня
+  const t=new Date(String(due).includes('T')?due:due+'T23:59').getTime(),n=Date.now(); // без времени — срок до конца дня
+  if(isNaN(t))return null; // непонятная дата — не красим карточку в «просрочено»
   if(t<n)return'over';if(t-n<864e5)return'soon';return'ok';}
 function fmtDue(due){const p=x=>String(x).padStart(2,'0');
-  const hasT=due.includes('T');const d=new Date(hasT?due:due+'T00:00');
+  const hasT=String(due).includes('T');const d=new Date(hasT?due:due+'T00:00');
+  if(isNaN(d))return 'без срока'; // кривая дата не должна показываться как NaN.NaN
   return `${p(d.getDate())}.${p(d.getMonth()+1)}`+(hasT?` ${p(d.getHours())}:${p(d.getMinutes())}`:'');}
 
 function makeColumn(col,isPanel,isWide){
@@ -1421,7 +1463,9 @@ document.addEventListener('dragstart',()=>{
     else if(_dragY>window.innerHeight-110)sc.scrollTop+=22;
   },30);
 });
-document.addEventListener('dragend',()=>{clearInterval(_dragScrollTimer);_dragScrollTimer=null;_dragY=-1;});
+// dragSrc сбрасываем ВСЕГДА в конце перетаскивания: иначе после отменённого перетаскивания
+// следующий посторонний дроп (картинка, текст) утащил бы карточку в другую колонку
+document.addEventListener('dragend',()=>{clearInterval(_dragScrollTimer);_dragScrollTimer=null;_dragY=-1;dragSrc=null;});
 /* Колёсико мыши во время перетаскивания карточки тоже скроллит доску */
 document.addEventListener('wheel',e=>{
   if(!dragSrc)return;
@@ -1437,7 +1481,10 @@ function commitDrop(targetColId,wrap){
   src.cards=src.cards.filter(c=>c.id!==card.id);
   const target=colById(targetColId);
   if(target.role==='nextweek'&&src.role!=='nextweek')card.created=Date.now(); // перезапуск недельного таймера
-  if(target.id!==src.id)state.log.push({title:card.title,from:src.title,to:target.title,ts:Date.now()});
+  if(target.id!==src.id){
+    state.log.push({title:card.title,from:src.title,to:target.title,ts:Date.now()});
+    if(state.log.length>2000)state.log=state.log.slice(-1500); // журнал уезжает в облако при каждом сохранении
+  }
   if(target.role==='done'&&!card.completedAt){card.completedAt=Date.now();bumpStreak();}
   const order=[...wrap.querySelectorAll('.card')].map(e=>e.dataset.id);
   const idx=order.indexOf(card.id);
@@ -1454,7 +1501,7 @@ function openTask(colId,cardId){
   document.getElementById('optEveryday').style.display=colById(colId).role==='daily'?'':'none';
   document.getElementById('taskModalTitle').textContent=card?'Редактировать задачу':'Новая задача';
   document.getElementById('fTitle').value=card?card.title:'';
-  document.getElementById('fDesc').value=card?card.desc:'';
+  document.getElementById('fDesc').value=(card&&card.desc)||''; // без ||'' в поле попадало слово undefined
   setPrio(card?card.prio:'');fillDue(card);
   setDeadlineLocked(!!card&&colById(colId).role==='inprogress'&&card.repeat!=='daily');
   document.getElementById('fDelete').style.display=card?'inline-flex':'none';
@@ -1527,7 +1574,7 @@ function setDeadlineLocked(locked){
   document.getElementById('postponeField').style.display=locked?'block':'none';
 }
 function postpone(delta){
-  const cur=readDue();if(cur.repeat==='daily')return;
+  const cur=readDue();if(cur.repeat)return; // любое повторение откладывать нельзя — иначе расписание сотрётся
   const base=Math.max(cur.due?new Date(cur.due).getTime():Date.now(),Date.now());
   const nd=new Date(base+delta);const p=x=>String(x).padStart(2,'0');
   dueDateSel.value='custom';dueCustom.value=fmtYMD(nd);dueTime.value=p(nd.getHours())+':'+p(nd.getMinutes());
@@ -1549,6 +1596,7 @@ document.getElementById('fSave').onclick=()=>{
   const data={title,desc:document.getElementById('fDesc').value.trim().slice(0,255),prio:curPrio(),...readDue()};
   if(data.repeat==='weekly'&&!(data.repeatDays||[]).length){toast('Выбери дни','Отметь хотя бы один день недели для повтора.');return;}
   const col=colById(editing.colId);
+  if(!col){toast('Не удалось сохранить','Доска обновилась. Открой задачу заново.');closeTask();return;}
   if(editing.cardId)Object.assign(col.cards.find(c=>c.id===editing.cardId),data);
   else{if(!checkFreeLimit())return;col.cards.push({id:uid(),...data,created:Date.now()});}
   if(col.role==='done'){col.cards.forEach(c=>{if(!c.completedAt)c.completedAt=Date.now();});bumpStreak();}
@@ -1877,11 +1925,16 @@ async function startApp(){
       }
     }
   }catch(e){}}
+  let freshAccount=false;
   if(!state){
-    if(accountSwitched){state=defaultState();} // доску прежнего аккаунта не поднимаем
+    if(accountSwitched){ // доску прежнего аккаунта не показываем, но и не уничтожаем
+      try{if(window.pywebview&&window.pywebview.api&&window.pywebview.api.archive_board)await window.pywebview.api.archive_board(lastUserId||'prev');}catch(e){}
+      state=defaultState();freshAccount=true;
+    }
     else{state=await loadLocalBoard();}
   }
-  await saveLocalBoard();
+  if(!freshAccount)await saveLocalBoard(); // пустую доску нового аккаунта поверх файла не пишем
+  if(boardReadOnly)toast('Доска только для чтения','Не удалось прочитать файл доски. Перезапусти приложение; данные на диске не тронуты.');
   autoMoveNextweek();
   if(!Array.isArray(state.archive))state.archive=[];
   autoArchiveDone();
@@ -1969,7 +2022,11 @@ function getStreak(){const s=loadStreak();if(!s.streak)return 0;const ld=s.lastD
 const PROFILE_KEY='drive-profile';
 let _profileCache=null;
 function loadProfile(){if(_profileCache)return _profileCache;try{_profileCache=JSON.parse(localStorage.getItem(PROFILE_KEY)||'{}');}catch(e){_profileCache={};}return _profileCache;}
-function saveProfile(p){_profileCache=p;localStorage.setItem(PROFILE_KEY,JSON.stringify(p));}
+function saveProfile(p){ // возвращает false, если хранилище переполнено (раньше ошибка терялась молча)
+  _profileCache=p;
+  try{localStorage.setItem(PROFILE_KEY,JSON.stringify(p));return true;}
+  catch(e){return false;}
+}
 function getInitials(p){const f=(p.firstName||'').trim(),l=(p.lastName||'').trim();if(f&&l)return (f[0]+l[0]).toUpperCase();if(f)return f[0].toUpperCase();return'?';}
 function updateProfileUI(){
   const p=loadProfile();const ini=getInitials(p);
@@ -2002,7 +2059,25 @@ document.getElementById('pfSignout').onclick=()=>{if(!confirm('Выйти из �
 document.getElementById('pfSignin').onclick=()=>{closeProfile();showAuth();};
 document.getElementById('profilePhotoInput').onchange=e=>{
   const f=e.target.files[0];if(!f)return;e.target.value='';
-  const r=new FileReader();r.onload=()=>{const p=loadProfile();p.photo=r.result;saveProfile(p);updateProfileUI();updateHeaderAvatar();pushProfileNow();};r.readAsDataURL(f);
+  // Сжимаем до 600px JPEG (как на Android): фото с телефона в исходном виде переполняет
+  // хранилище, а ошибка переполнения раньше молча теряла фото
+  const r=new FileReader();
+  r.onload=()=>{
+    const img=new Image();
+    img.onload=()=>{
+      const side=Math.min(img.width,img.height),max=600;
+      const cv=document.createElement('canvas');cv.width=cv.height=Math.min(side,max);
+      const ctx=cv.getContext('2d');
+      ctx.drawImage(img,(img.width-side)/2,(img.height-side)/2,side,side,0,0,cv.width,cv.height);
+      const small=cv.toDataURL('image/jpeg',0.82);
+      const p=loadProfile();p.photo=small;
+      if(!saveProfile(p)){toast('Фото не сохранилось','Не хватило места в хранилище — попробуй файл поменьше.');return;}
+      updateProfileUI();updateHeaderAvatar();pushProfileNow();
+    };
+    img.onerror=()=>toast('Не получилось','Не удалось прочитать это изображение.');
+    img.src=r.result;
+  };
+  r.readAsDataURL(f);
 };
 
 /* ========== PRO-СТАТУС ========== */
@@ -2018,7 +2093,7 @@ async function checkProStatus(){
   try{const c=JSON.parse(localStorage.getItem(PRO_CACHE_KEY)||'null');if(c&&c.email===email&&Date.now()-c.ts<3600000){_proStatus=c.status;updateProUI();return;}}catch(e){}
   try{
     const h=await cloudHeaders();
-    const res=await fetch(SB_URL+'/rest/v1/pro_users?select=email&email=eq.'+encodeURIComponent(email),{headers:h});
+    const res=await fetchWithTimeout(SB_URL+'/rest/v1/pro_users?select=email&email=eq.'+encodeURIComponent(email),{headers:h});
     if(res.ok){const rows=await res.json();_proStatus=rows.length>0;localStorage.setItem(PRO_CACHE_KEY,JSON.stringify({status:_proStatus,email,ts:Date.now()}));updateProUI();}
   }catch(e){}
 }
@@ -2116,7 +2191,7 @@ function openArchive(){
 function closeArchive(){document.getElementById('archiveOverlay').classList.remove('open');}
 document.getElementById('archiveClose').onclick=closeArchive;
 document.getElementById('archiveOverlay').addEventListener('click',e=>{if(e.target===document.getElementById('archiveOverlay'))closeArchive();});
-document.getElementById('archiveClear').onclick=()=>{if(!confirm('Очистить весь архив? Это действие нельзя отменить.'))return;state.archive=[];save();closeArchive();toast('Архив очищен','');};
+document.getElementById('archiveClear').onclick=()=>{if(!confirm('Очистить весь архив? Это действие нельзя отменить.'))return;state.archive=[];save();render();closeArchive();toast('Архив очищен','');};
 
 /* ========== ADMIN ========== */
 function openAdmin(){
@@ -2131,7 +2206,7 @@ async function loadAdminProList(){
   const list=document.getElementById('adminProList');list.innerHTML='<div class="empty-hint">Загрузка…</div>';
   try{
     const h=await cloudHeaders();
-    const res=await fetch(SB_URL+'/rest/v1/pro_users?select=email,granted_at&order=granted_at.desc',{headers:h});
+    const res=await fetchWithTimeout(SB_URL+'/rest/v1/pro_users?select=email,granted_at&order=granted_at.desc',{headers:h});
     if(!res.ok)throw new Error(''+res.status);
     const rows=await res.json();list.innerHTML='';
     if(!rows.length){list.innerHTML='<div class="empty-hint">Нет Pro-пользователей.</div>';return;}
@@ -2142,7 +2217,7 @@ async function loadAdminProList(){
         <button class="admin-revoke">Отозвать</button>`;
       el.querySelector('.admin-revoke').onclick=async()=>{
         if(!confirm('Отозвать Pro у '+row.email+'?'))return;
-        try{const h2=await cloudHeaders();await fetch(SB_URL+'/rest/v1/pro_users?email=eq.'+encodeURIComponent(row.email),{method:'DELETE',headers:h2});loadAdminProList();toast('Отозвано',row.email);}
+        try{const h2=await cloudHeaders();await fetchWithTimeout(SB_URL+'/rest/v1/pro_users?email=eq.'+encodeURIComponent(row.email),{method:'DELETE',headers:h2});loadAdminProList();toast('Отозвано',row.email);}
         catch(err){toast('Ошибка',''+err.message);}
       };
       list.appendChild(el);
@@ -2153,7 +2228,7 @@ document.getElementById('adminGrantBtn').onclick=async()=>{
   const email=document.getElementById('adminEmailInput').value.trim();if(!email)return;
   try{
     const h=await cloudHeaders();h['Prefer']='resolution=merge-duplicates';
-    const res=await fetch(SB_URL+'/rest/v1/pro_users',{method:'POST',headers:h,body:JSON.stringify({email,granted_at:new Date().toISOString()})});
+    const res=await fetchWithTimeout(SB_URL+'/rest/v1/pro_users',{method:'POST',headers:h,body:JSON.stringify({email,granted_at:new Date().toISOString()})});
     if(!res.ok)throw new Error(''+res.status);
     document.getElementById('adminEmailInput').value='';loadAdminProList();toast('Pro выдан',email,'green');
   }catch(err){toast('Ошибка',''+err.message);}
@@ -2292,7 +2367,10 @@ function showNextInvite(){
   document.getElementById('inviteText').textContent='Тебя пригласили в команду «'+inviteTeamName(_invites[0])+'» — общая доска задач для всех участников. Вступить?';
   ov.classList.add('open');
 }
+let _answering=false;
 async function answerInvite(yes){
+  if(_answering||!_invites.length)return; // второй клик по «Да» падал на пустом списке
+  _answering=true;
   const inv=_invites.shift();
   const seen=invitesSeen();seen.delete(inv.team_id);saveInvitesSeen(seen); // пригласят снова — пуш придёт снова
   const q='team_members?team_id=eq.'+inv.team_id+'&email=eq.'+encodeURIComponent(myEmail());
@@ -2306,6 +2384,7 @@ async function answerInvite(yes){
       toast('Приглашение отклонено','Если передумаешь — пусть пригласят ещё раз.');
     }
   }catch(e){toast('Не получилось',e.message);}
+  _answering=false;
   showNextInvite();
 }
 document.getElementById('inviteYes').onclick=()=>answerInvite(true);
@@ -2533,8 +2612,10 @@ document.getElementById('settingsOverlay').addEventListener('click',e=>{if(e.tar
 /* sGoalPick removed — goal pick is in the goals overlay only */
 document.getElementById('sExcelBtn').onclick=()=>{closeSettings();document.getElementById('excelBtn').click();};
 document.getElementById('sClearBtn').onclick=()=>{
-  if(!confirm('Удалить ВСЕ задачи? Это действие нельзя отменить.'))return;
-  state=defaultState();applyTheme();save();render();renderMotivation();closeSettings();toast('Доска очищена','Все задачи удалены.');
+  // чистим ТОЛЬКО карточки: архив, стикеры, пресеты, медиа и настройки остаются
+  if(!confirm('Удалить все задачи со всех колонок?\n\nАрхив, стикеры, пресеты и настройки останутся. Отменить будет нельзя.'))return;
+  state.columns.forEach(c=>c.cards=[]);
+  save();render();renderMotivation();closeSettings();toast('Задачи удалены','Архив, стикеры и пресеты на месте.');
 };
 document.getElementById('sOnboardingBtn').onclick=()=>{closeSettings();startOnboarding();};
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSettings();});
@@ -2607,8 +2688,11 @@ window.addEventListener('pywebviewready',setVersionLine);
 whenReady(async function(){
   loadSession();
   if(session){
-    try{if(session.expires_at&&Date.now()>session.expires_at-60000)await refreshToken();await startApp();}
-    catch(e){saveSession(null);showAuth();}
+    // Сетевая ошибка — НЕ повод разлогинивать: сессию чистит сам refreshToken, только если
+    // сервер явно отказал в токене. Иначе спокойно открываем доску офлайн.
+    try{if(session.expires_at&&Date.now()>session.expires_at-60000)await refreshToken();}catch(e){}
+    if(session){try{await startApp();}catch(e){showAuth();}}
+    else showAuth();
   }else if(isOffline()){
     await startApp();
   }else{
