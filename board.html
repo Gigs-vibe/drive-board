@@ -789,6 +789,12 @@
       <div class="settings-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg></div>
       <div class="settings-row-info"><b>Ежедневные задачи</b><span>Напоминание в указанное время каждый день</span></div>
     </div>
+    <div class="settings-section">Быстрая запись</div>
+    <div class="settings-row" id="hotkeyRow">
+      <div class="settings-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></div>
+      <div class="settings-row-info"><b>Горячая клавиша</b><span id="hotkeyNote">Окошко поверх всех программ: записал — задача в Бэклоге</span></div>
+      <select id="hotkeySel" style="flex-shrink:0;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)"></select>
+    </div>
     <div class="settings-section">Данные</div>
     <div class="settings-row" style="cursor:pointer" id="sExcelBtn">
       <div class="settings-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 13 6 6M15 13l-6 6"/></svg></div>
@@ -903,7 +909,7 @@ const Store={
     try{localStorage.setItem(k,v);return true;}catch(e){return false;}
   }
 };
-const UI_BUILD='1.8.4'; // версия интерфейса — держим равной VERSION в app.py; расхождение видно в Настройках
+const UI_BUILD='1.8.5'; // версия интерфейса — держим равной VERSION в app.py; расхождение видно в Настройках
 const KEY='kanban-state-v2';
 const uid=()=>Math.random().toString(36).slice(2,9);
 
@@ -1358,6 +1364,51 @@ function render(){
   const daily=colByRole('daily');if(daily)sidebarEl.appendChild(makeColumn(daily,true));
   const nw=colByRole('nextweek');if(nw)wideEl.appendChild(makeColumn(nw,true,true));
   updateRingUI();renderNotes();
+}
+
+/* ========== БЫСТРАЯ ЗАПИСЬ ЗАДАЧИ (глобальное сочетание клавиш) ==========
+   Зовёт Python из всплывающего окна. Доску меняет только это окно — так у файла
+   один хозяин, и быстрая запись не конфликтует с обычной работой. */
+function quickAddTask(text,prio,today){
+  const t=String(text||'').trim().slice(0,80);
+  if(!t||!state)return false;
+  if(boardReadOnly&&!currentTeam){toast('Не сохранено','Доска сейчас только для чтения — перезапусти Taska.');return false;}
+  const col=colByRole('backlog');if(!col)return false;
+  const p=['low','med','high'].includes(prio)?prio:'';
+  const due=today?fmtYMD(new Date()):''; // срок на день, без времени — как обычная дата без часа
+  col.cards.push({id:uid(),title:t,desc:'',prio:p,due,created:Date.now()});
+  save();render();
+  const PR={low:'низкий',med:'средний',high:'высокий'};
+  toast('Задача добавлена',t+(p?' · приоритет '+PR[p]:'')+(due?' · срок сегодня':''),'green');
+  return true;
+}
+const HOTKEYS=[['ctrl+shift+space','Ctrl + Shift + Пробел'],['ctrl+shift+t','Ctrl + Shift + T'],
+               ['ctrl+alt+q','Ctrl + Alt + Q'],['ctrl+shift+insert','Ctrl + Shift + Insert'],['off','Выключить']];
+async function initHotkeyUI(){
+  const sel=document.getElementById('hotkeySel'),note=document.getElementById('hotkeyNote');
+  if(!sel)return;
+  if(!(window.pywebview&&window.pywebview.api&&window.pywebview.api.get_hotkey)){
+    const row=document.getElementById('hotkeyRow');if(row)row.style.display='none';return; // в браузере нечего настраивать
+  }
+  sel.innerHTML=HOTKEYS.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
+  try{
+    const h=await window.pywebview.api.get_hotkey();
+    sel.value=(state&&state.quickKey)||h.combo||'ctrl+shift+space';
+    showHotkeyState(h.active,sel.value);
+  }catch(e){}
+  sel.onchange=async()=>{
+    const combo=sel.value;
+    if(state){state.quickKey=combo;save();}
+    let active=null;
+    try{active=await window.pywebview.api.set_hotkey(combo);}catch(e){}
+    showHotkeyState(active,combo);
+  };
+  function showHotkeyState(active,combo){
+    if(!note)return;
+    if(combo==='off'){note.textContent='Быстрая запись выключена';note.style.color='';}
+    else if(active===combo){note.textContent='Работает, пока Taska запущена (можно свернуть в трей)';note.style.color='';}
+    else{note.textContent='Это сочетание занято другой программой — выбери другое';note.style.color='#ef4444';}
+  }
 }
 
 /* ========== СТИКЕРЫ-ЗАМЕТКИ (живут в state.notes → на командной доске видны всем участникам) ========== */
@@ -2635,6 +2686,7 @@ document.getElementById('teamOverlay').addEventListener('click',e=>{if(e.target=
 function openSettings(){
   closeMenus();
   applyTheme();
+  initHotkeyUI();
   document.getElementById('notifPreSel').value=String(notifPreMin());
   document.getElementById('settingsOverlay').classList.add('open');
 }

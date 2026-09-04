@@ -57,7 +57,7 @@ window = None  # ссылка на окно pywebview (нужна для диа�
 
 # === Версия и обновления через GitHub ===
 # При каждом новом релизе увеличивай VERSION и ставь такой же тег у релиза (например v1.1).
-VERSION = "1.8.4"
+VERSION = "1.8.5"
 GITHUB_REPO = "Gigs-vibe/drive-board"
 # Прямая ссылка на установщик последнего релиза — запасной путь, когда GitHub API недоступен
 DIRECT_INSTALLER_URL = f"https://github.com/{GITHUB_REPO}/releases/latest/download/TaskaSetup.exe"
@@ -96,6 +96,92 @@ NOTIFIED_FILE = os.path.join(data_dir(), "drive-notified.json")  # что уже
 # ----------------------------------------------------------------------------
 LOAD_ERROR = "__TASKA_LOAD_ERROR__"  # тот же признак читает board.html
 _SAVE_LOCK = threading.Lock()        # запись доски — по одному потоку за раз
+
+# ----------------------------------------------------------------------------
+# Быстрая запись задачи по глобальному сочетанию клавиш (работает из трея)
+# ----------------------------------------------------------------------------
+quick_window = None
+MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_NOREPEAT = 0x0001, 0x0002, 0x0004, 0x4000
+WM_HOTKEY, HOTKEY_ID = 0x0312, 1
+DEFAULT_HOTKEY = "ctrl+shift+space"
+_VK = {"space": 0x20, "enter": 0x0D, "insert": 0x2D, "f2": 0x71, "f8": 0x77, "f9": 0x78}
+_hotkey = {"combo": DEFAULT_HOTKEY, "changed": True, "active": None}
+_hotkey_lock = threading.Lock()
+
+
+def parse_hotkey(combo):
+    """'ctrl+shift+space' -> (модификаторы, код клавиши). None — выключено или не разобрали."""
+    s = (combo or "").lower().replace(" ", "")
+    if not s or s == "off":
+        return None
+    mods = 0
+    if "ctrl" in s:
+        mods |= MOD_CONTROL
+    if "shift" in s:
+        mods |= MOD_SHIFT
+    if "alt" in s:
+        mods |= MOD_ALT
+    key = s.split("+")[-1]
+    vk = _VK.get(key) or (ord(key.upper()) if len(key) == 1 and key.isalnum() else None)
+    return (mods | MOD_NOREPEAT, vk) if (mods and vk) else None
+
+
+def saved_hotkey():
+    """Сочетание берём из доски — она читается и без запущенного интерфейса."""
+    try:
+        data = read_board_file(DATA_FILE)
+        if data:
+            v = json.loads(data).get("quickKey")
+            if isinstance(v, str) and v:
+                return v
+    except Exception:
+        pass
+    return DEFAULT_HOTKEY
+
+
+def show_quick_window():
+    if not quick_window:
+        return
+    try:
+        quick_window.show()
+        quick_window.evaluate_js("focusInput()")
+    except Exception:
+        pass
+
+
+def hotkey_loop(stop_event: threading.Event):
+    """Свой поток: регистрирует сочетание в Windows и ждёт нажатия.
+    Права администратора не нужны; окно поверх всего разрешено именно потому,
+    что процесс получил горячую клавишу."""
+    if os.name != "nt":
+        return
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    msg = wintypes.MSG()
+    registered = None
+    while not stop_event.is_set():
+        with _hotkey_lock:
+            want, need = _hotkey["combo"], _hotkey["changed"]
+            _hotkey["changed"] = False
+        if need:
+            if registered is not None:
+                user32.UnregisterHotKey(None, HOTKEY_ID)
+                registered = None
+            parsed = parse_hotkey(want)
+            if parsed and user32.RegisterHotKey(None, HOTKEY_ID, parsed[0], parsed[1]):
+                registered = want
+            with _hotkey_lock:  # интерфейс покажет, получилось ли занять сочетание
+                _hotkey["active"] = registered
+        while user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0x0001):  # PM_REMOVE
+            if msg.message == WM_HOTKEY:
+                show_quick_window()
+        stop_event.wait(0.12)
+    if registered is not None:
+        try:
+            user32.UnregisterHotKey(None, HOTKEY_ID)
+        except Exception:
+            pass
 
 
 def board_is_whole(text):
@@ -168,6 +254,44 @@ class Api:
             return True
         except Exception:
             return False
+
+    def quick_add(self, text, prio="", today=False):
+        """Из всплывающего окна: отдаём текст основному окну — доску меняет только оно,
+        иначе два окна писали бы в один файл и затирали друг друга."""
+        t = (text or "").strip()[:80]
+        if not t or not window:
+            return False
+        p = prio if prio in ("low", "med", "high") else ""
+        try:
+            window.evaluate_js("quickAddTask({},{},{})".format(
+                json.dumps(t, ensure_ascii=False), json.dumps(p), "true" if today else "false"))
+            return True
+        except Exception:
+            return False
+
+    def quick_close(self):
+        try:
+            if quick_window:
+                quick_window.hide()
+        except Exception:
+            pass
+        return True
+
+    def set_hotkey(self, combo):
+        """Сменить сочетание на лету. Возвращает то, что удалось занять (или null)."""
+        with _hotkey_lock:
+            _hotkey["combo"] = combo or ""
+            _hotkey["changed"] = True
+        for _ in range(20):  # ждём, пока поток применит (обычно 1-2 цикла)
+            time.sleep(0.05)
+            with _hotkey_lock:
+                if not _hotkey["changed"]:
+                    return _hotkey["active"]
+        return None
+
+    def get_hotkey(self):
+        with _hotkey_lock:
+            return {"combo": _hotkey["combo"], "active": _hotkey["active"]}
 
     def archive_board(self, tag):
         """Откладывает текущую доску в отдельный файл — например, при входе под другим аккаунтом."""
@@ -749,7 +873,7 @@ def check_ui_build():
 
 
 def main():
-    global window
+    global window, quick_window
 
     if not getattr(sys, "frozen", False):
         check_ui_build()
@@ -771,6 +895,16 @@ def main():
         min_size=(720, 520),
     )
 
+    # Всплывающее окно быстрой записи: создаём скрытым один раз, дальше только show/hide —
+    # так оно появляется мгновенно по горячей клавише
+    quick_window = webview.create_window(
+        "Taska — быстрая задача",
+        resource_path("quick.html"),
+        js_api=api,
+        width=600, height=132,
+        frameless=True, on_top=True, hidden=True, resizable=False,
+    )
+
     # крестик окна сворачивает в трей, а не закрывает программу
     def on_closing():
         if HAVE_TRAY and not stop_event.is_set():
@@ -785,6 +919,12 @@ def main():
 
     threading.Thread(target=reminder_loop, args=(stop_event,), daemon=True).start()
     threading.Thread(target=start_single_instance_server, args=(stop_event,), daemon=True).start()
+
+    # глобальное сочетание клавиш для быстрой записи задачи
+    with _hotkey_lock:
+        _hotkey["combo"] = saved_hotkey()
+        _hotkey["changed"] = True
+    threading.Thread(target=hotkey_loop, args=(stop_event,), daemon=True).start()
 
     # проверка обновлений на GitHub (тихо, в фоне, через несколько секунд после старта)
     def delayed_update_check():

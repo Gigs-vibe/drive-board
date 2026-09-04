@@ -25,7 +25,7 @@ echo   Building app (onedir, this takes a couple minutes)...
 echo ============================================
 rmdir /s /q build 2>nul
 rmdir /s /q dist\Taska 2>nul
-%PY% -m PyInstaller --noconfirm --windowed --onedir --name "Taska" --icon "icon.ico" --add-data "board.html;." --add-data "icon.png;." --add-data "icon.ico;." app.py
+%PY% -m PyInstaller --noconfirm --windowed --onedir --name "Taska" --icon "icon.ico" --add-data "board.html;." --add-data "quick.html;." --add-data "icon.png;." --add-data "icon.ico;." app.py
 if errorlevel 1 goto fail
 
 echo.

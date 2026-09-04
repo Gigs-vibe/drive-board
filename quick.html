@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Быстрая задача</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:transparent;overflow:hidden}
+  body{font-family:"Segoe UI Variable","Segoe UI",system-ui,Arial,sans-serif;display:flex;align-items:center;justify-content:center;padding:8px}
+  .box{width:100%;background:#171a21;border:1px solid #2b313d;border-radius:16px;
+       box-shadow:0 18px 50px rgba(0,0,0,.55);padding:13px 16px 11px}
+  .top{display:flex;align-items:center;gap:12px}
+  .dot{width:26px;height:26px;border-radius:9px;background:linear-gradient(135deg,#10b981,#0ea5e9);
+       display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .dot svg{width:15px;height:15px;color:#fff}
+  input{flex:1;background:transparent;border:none;outline:none;color:#e9ecf1;font-size:15.5px;font-family:inherit}
+  input::placeholder{color:#8b93a3}
+  .row{display:flex;align-items:center;gap:6px;margin:10px 0 0 38px}
+  .chip{border:1px solid #2b313d;background:#1f242e;color:#8b93a3;border-radius:8px;padding:4px 9px;
+        font-size:11.5px;font-weight:650;cursor:pointer;font-family:inherit;white-space:nowrap}
+  .chip:hover{color:#c9d1dc}
+  .chip.on{color:#fff;border-color:transparent}
+  .chip[data-p="low"].on{background:#22b07d}
+  .chip[data-p="med"].on{background:#f59e0b}
+  .chip[data-p="high"].on{background:#ef4444}
+  .chip.today.on{background:#0ea5e9}
+  .sep{width:1px;height:16px;background:#2b313d;margin:0 3px}
+  .hint{margin-left:auto;font-size:11px;color:#6b7280;white-space:nowrap}
+  .hint b{color:#9aa3b2;font-weight:650}
+  .ok{color:#10b981;font-weight:700}
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="top">
+      <span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+      <input id="q" placeholder="Что нужно сделать?" maxlength="80" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="row">
+      <button class="chip" data-p="low">низкий</button>
+      <button class="chip" data-p="med">средний</button>
+      <button class="chip" data-p="high">высокий</button>
+      <span class="sep"></span>
+      <button class="chip today" id="today">срок сегодня</button>
+      <span class="hint" id="hint"><b>Enter</b> — в Бэклог · <b>Alt+1/2/3</b> — приоритет · <b>Esc</b></span>
+    </div>
+  </div>
+<script>
+const inp=document.getElementById('q'), hint=document.getElementById('hint'), todayBtn=document.getElementById('today');
+const prioBtns=[...document.querySelectorAll('.chip[data-p]')];
+const HINT='<b>Enter</b> — в Бэклог · <b>Alt+1/2/3</b> — приоритет · <b>Esc</b>';
+let prio='', today=false, busy=false;
+
+function paint(){
+  prioBtns.forEach(b=>b.classList.toggle('on',b.dataset.p===prio));
+  todayBtn.classList.toggle('on',today);
+}
+function setPrio(p){prio=(prio===p?'':p);paint();inp.focus();}
+function focusInput(){ // зовёт Python при каждом показе окна — начинаем с чистого листа
+  inp.value='';prio='';today=false;busy=false;
+  hint.className='hint';hint.innerHTML=HINT;
+  paint();inp.focus();
+}
+function close(){try{window.pywebview.api.quick_close();}catch(e){}}
+
+prioBtns.forEach(b=>b.onclick=()=>setPrio(b.dataset.p));
+todayBtn.onclick=()=>{today=!today;paint();inp.focus();};
+
+document.addEventListener('keydown',async e=>{
+  if(e.key==='Escape'){e.preventDefault();close();return;}
+  if(e.altKey){ // приоритет и срок с клавиатуры, не отрывая рук
+    if(e.key==='1'){e.preventDefault();setPrio('low');return;}
+    if(e.key==='2'){e.preventDefault();setPrio('med');return;}
+    if(e.key==='3'){e.preventDefault();setPrio('high');return;}
+    if(e.key.toLowerCase()==='d'||e.key==='в'){e.preventDefault();today=!today;paint();return;}
+  }
+  if(e.key!=='Enter'||busy)return;
+  e.preventDefault();
+  const text=inp.value.trim();
+  if(!text){close();return;}
+  busy=true;
+  let ok=false;
+  try{ok=await window.pywebview.api.quick_add(text,prio,today);}catch(err){}
+  if(ok){
+    hint.className='hint ok';hint.textContent='✓ добавлено';
+    setTimeout(close,450);
+  }else{
+    hint.className='hint';hint.textContent='не удалось добавить — открой Taska';
+    busy=false;
+  }
+});
+window.addEventListener('blur',()=>{if(!busy)close();}); // клик мимо = передумал
+</script>
+</body>
+</html>
