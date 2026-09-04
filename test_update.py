@@ -30,8 +30,11 @@ try:
 finally:
     app._openers = real_openers
 
-# 4) начало файла установщика по прямой ссылке — реально ли это exe (MZ)
-head = app.fetch_url(app.DIRECT_INSTALLER_URL, 30)[:2]
+# 4) начало файла установщика по прямой ссылке — реально ли это exe (MZ).
+# Просим только первые байты: качать ради этого 23 МБ незачем.
+_req = urllib.request.Request(app.DIRECT_INSTALLER_URL, headers={"Range": "bytes=0-1", "User-Agent": "Taska-Board"})
+with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(_req, timeout=30) as _r:
+    head = _r.read(2)
 print("первые байты установщика:", head)
 assert head == b"MZ", "по прямой ссылке отдаётся не exe"
 

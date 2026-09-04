@@ -68,9 +68,14 @@ api.archive_board("user-42")
 copy = os.path.join(TMP, "drive-board-user-42.json")
 check("archive_board делает копию доски прежнего аккаунта",
       os.path.exists(copy) and "важная задача" in open(copy, encoding="utf-8").read())
-api.archive_board("../../побег")  # имя файла не должно выводить за папку
-check("archive_board не даёт вырваться из папки данных",
-      not any("побег" in n and os.sep in n for n in os.listdir(TMP)))
+before_outside = set(os.listdir(os.path.dirname(TMP)))
+api.archive_board("../../побег")  # попытка выйти за папку данных
+after_outside = set(os.listdir(os.path.dirname(TMP)))
+new_outside = [n for n in (after_outside - before_outside) if "побег" in n or n.startswith("drive-board")]
+check("archive_board не создаёт файлов вне папки данных", not new_outside, f"снаружи появилось: {new_outside}")
+inside = [n for n in os.listdir(TMP) if "побег" in n]
+check("archive_board кладёт копию внутрь папки, вырезав ../ из имени",
+      inside == ["drive-board-побег.json"], f"внутри: {inside}")
 
 # --- целостность: сохранение → чтение по кругу
 reset(None)
@@ -78,9 +83,25 @@ big = json.dumps({"columns": [{"role": "backlog", "cards": [{"id": str(i), "titl
                   "notes": [{"id": "n", "text": "стикер"}]}, ensure_ascii=False)
 t = time.time()
 api.save(big)
+save_ms = (time.time() - t) * 1000
 got = api.load()
 check("доска на 500 задач сохраняется и читается без потерь", got == big)
-check("сохранение большой доски быстрее 300 мс", (time.time() - t) < 0.3, f"{int((time.time()-t)*1000)} мс")
+check("сохранение большой доски быстрее 300 мс", save_ms < 300, f"{int(save_ms)} мс")
+
+# --- запись из нескольких потоков не должна оставлять обрывок (pywebview зовёт js_api из разных потоков)
+import threading
+reset()
+variants = [json.dumps({"columns": [{"role": "backlog", "cards": [{"id": str(i), "title": "п" * (100 * (i + 1))}]}]},
+                       ensure_ascii=False) for i in range(8)]
+threads = [threading.Thread(target=api.save, args=(v,)) for v in variants]
+for t_ in threads:
+    t_.start()
+for t_ in threads:
+    t_.join()
+final = api.load()
+check("после 8 одновременных сохранений на диске целая доска (а не обрывок)",
+      final in variants, f"на диске оказалось {len(final or '')} символов, это не одна из версий")
+check("временный файл после гонки убран", not os.path.exists(app.DATA_FILE + ".tmp"))
 
 print("\n" + ("ВСЁ ХОРОШО: критические сценарии потери доски закрыты" if not FAILED
               else f"ОСТАЛИСЬ ПРОБЛЕМЫ ({len(FAILED)}): " + "; ".join(FAILED)))

@@ -57,13 +57,11 @@ window = None  # ссылка на окно pywebview (нужна для диа�
 
 # === Версия и обновления через GitHub ===
 # При каждом новом релизе увеличивай VERSION и ставь такой же тег у релиза (например v1.1).
-VERSION = "1.8.3"
+VERSION = "1.8.4"
 GITHUB_REPO = "Gigs-vibe/drive-board"
 # Прямая ссылка на установщик последнего релиза — запасной путь, когда GitHub API недоступен
 DIRECT_INSTALLER_URL = f"https://github.com/{GITHUB_REPO}/releases/latest/download/TaskaSetup.exe"
 SINGLE_INSTANCE_PORT = 27315  # локальный порт для обнаружения запущенного экземпляра
-
-_pending_update = {"version": None, "download_url": None}
 
 # === Supabase (для входа через Google) ===
 SUPABASE_URL = "https://qbwjnkwzispjbarrlgkf.supabase.co"
@@ -97,6 +95,7 @@ NOTIFIED_FILE = os.path.join(data_dir(), "drive-notified.json")  # что уже
 # Мост JS <-> Python: сохранение и загрузка доски
 # ----------------------------------------------------------------------------
 LOAD_ERROR = "__TASKA_LOAD_ERROR__"  # тот же признак читает board.html
+_SAVE_LOCK = threading.Lock()        # запись доски — по одному потоку за раз
 
 
 def board_is_whole(text):
@@ -145,7 +144,13 @@ class Api:
         return LOAD_ERROR
 
     def save(self, data):
-        """Атомарная запись: сначала во временный файл, потом подмена. Прошлая версия — в .bak."""
+        """Атомарная запись: сначала во временный файл, потом подмена. Прошлая версия — в .bak.
+        Под замком: pywebview зовёт js_api из разных потоков, без него два сохранения
+        писали бы в один .tmp и на диск попал бы обрывок."""
+        with _SAVE_LOCK:
+            return self._save_locked(data)
+
+    def _save_locked(self, data):
         try:
             if not isinstance(data, str) or not board_is_whole(data):
                 return False  # обрывок или мусор на диск не пишем
@@ -533,7 +538,6 @@ def show_update_toast(latest, page_url):
 
 def check_update(manual=False):
     """Сравнивает VERSION с последним релизом на GitHub и уведомляет, если есть новее."""
-    global _pending_update
     if not GITHUB_REPO:
         if manual:
             show_toast("Обновления", "Адрес репозитория не задан в app.py (GITHUB_REPO).")
@@ -545,8 +549,6 @@ def check_update(manual=False):
         page = data.get("html_url", f"https://github.com/{GITHUB_REPO}/releases/latest")
         download_url = get_asset_url(data) or page
         if parse_ver(latest) > parse_ver(VERSION):
-            _pending_update["version"] = latest
-            _pending_update["download_url"] = download_url
             show_update_toast(latest, page)
             if window:
                 esc = lambda s: str(s).replace("\\", "\\\\").replace("'", "\\'")
@@ -792,11 +794,8 @@ def main():
 
     # WebView2 (Edge) встроен в Windows 10/11 — отдельной установки не нужно
     # storage_path + private_mode=False — localStorage сохраняется между запусками
-    # HTTP-кэш чистим при каждом старте: WebView2 кэшировал board.html со внутреннего
-    # сервера (порт фиксированный) и после обновления показывал СТАРЫЙ интерфейс.
-    # Папки Local Storage не трогаем — там сессия и настройки.
-    for _c in ("Cache", "Code Cache"):
-        shutil.rmtree(os.path.join(data_dir(), "EBWebView", "Default", _c), ignore_errors=True)
+    # Кэш при старте больше не чистим: страница грузится как board.html?v=VERSION,
+    # у каждой версии свой адрес — старый файл подсунуть невозможно (см. create_window ниже).
     webview.start(storage_path=data_dir(), private_mode=False, gui="edgechromium")
     stop_event.set()
 
